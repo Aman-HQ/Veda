@@ -1,14 +1,14 @@
 # Veda Chatbot — Execution Plan
 
 **Purpose:** Turn the roadmap into a concrete, sequenced plan with unambiguous steps, commands, and acceptance criteria.
-**Rules:** JS React frontend (Vite), FastAPI backend, MongoDB (Beanie/Motor), TailwindCSS, JWT + Google OAuth2, REST + WebSocket streaming, Dockerized local dev, no OpenAI API.
+**Rules:** JS React frontend (Vite), FastAPI backend, PostgreSQL (SQLAlchemy + async driver), TailwindCSS, JWT + Google OAuth2, REST + WebSocket streaming, Dockerized local dev, no OpenAI API.
 
 ---
 
 ## Scope and assumptions
 
 - **Frontend:** React (Vite) + JavaScript only, TailwindCSS, Jest + React Testing Library
-- **Backend:** FastAPI (async), Pydantic, MongoDB via Beanie ODM (on top of Motor)
+- **Backend:** FastAPI (async), Pydantic, PostgreSQL via SQLAlchemy (async + Alembic for migrations)
 - **Auth:** JWT access + refresh, Google OAuth2
 - **Communication:** REST for CRUD, WebSocket for streaming
 - **LLM:** Custom fine‑tuned local/service model integrated via `llm_provider.py` abstraction
@@ -23,8 +23,8 @@
 
 ### 1.1 Local (docker-compose)
 
-- **Services:** `frontend` (5173), `backend` (8000), `mongodb` (27017)
-- Volumes for MongoDB data persistence
+- **Services:** `frontend` (5173), `backend` (8000), `postgres` (5432)
+- Volumes for postgres data persistence
 - Hot reload for frontend/backend
 
 ### 1.2 Environment variables (.env.example)
@@ -32,7 +32,7 @@
 **Backend:**
 
 ```
-MONGODB_URI=mongodb://mongodb:27017/veda
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/veda
 JWT_SECRET=replace_me
 JWT_ALG=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=15
@@ -121,8 +121,9 @@ veda/
    │  │  ├─ config.py
    │  │  └─ security.py
    │  ├─ db/
-   │  │  ├─ init_db.py
-   │  │  └─ indexes.py
+   │  │  ├─ base.py        # SQLAlchemy Base + metadata
+   │  │  ├─ session.py     # async engine & session
+   │  │  └─ init_db.py     # Alembic migration setup or initial create_all()
    │  ├─ models/
    │  │  ├─ user.py
    │  │  ├─ conversation.py
@@ -332,7 +333,7 @@ npm i -D jest @testing-library/react @testing-library/jest-dom @testing-library/
 - Create backend/ with FastAPI layout (`app/` tree as in guardrails(target structure))
 - App factory in `app/main.py`
 - Add `/health` endpoint
-- Add requirements.txt (fastapi, uvicorn, pydantic, beanie, motor, bcrypt, python-jose[cryptography], python-multipart, httpx)
+- Add requirements.txt (fastapi, uvicorn, pydantic, sqlalchemy[asyncio], asyncpg, alembic, bcrypt, python-jose[cryptography], python-multipart, httpx)
 
 **Acceptance**
 
@@ -344,29 +345,85 @@ npm i -D jest @testing-library/react @testing-library/jest-dom @testing-library/
 
 - Config module `core/config.py`: load envs, CORS origins
 - Security module `core/security.py`: password hash/verify (bcrypt), JWT create/verify, token payloads
-- `db/init_db.py`: connect Beanie to Mongo; `db/indexes.py`: ensure indexes on startup
+- db/session.py: create async engine and sessionmaker
+- db/base.py: define declarative base for models
+- db/init_db.py: initialize database, optionally run alembic upgrade head
+
 
 **Acceptance**
 
-- Startup logs show Mongo connected; no index errors.
+- Startup logs show PostgreSQL connected; tables created or migrations applied.
 
-#### B02 — Models & Schemas
+#### B02 — Database Migrations (Alembic)
+
+**Actions**
+- Initialize Alembic in backend/
+- Configure `alembic.ini` with `sqlalchemy.url = DATABASE_URL`
+- Generate migration scripts with `alembic revision --autogenerate -m "init"`
+- Apply migrations using `alembic upgrade head`
+
+**Acceptance**
+- Tables created via Alembic; migration history tracked.
+
+
+#### B03 — Models & Schemas (PostgreSQL + SQLAlchemy)
 
 **Actions**
 
-- Beanie Documents: - User: `email`, `hashed_password`, `name`, `role`, `refresh_tokens`, timestamps - Conversation: `user_id`, `title`, `messages_count`, timestamps - Message: `conversation_id`, `sender` ("user"|"assistant"), `content`, `status`, `metadata`, timestamps
-- Pydantic schemas: schemas/auth.py, schemas/chat.py
-- Timestamps on documents; sender enum (“user”|“assistant”)
+- Create ORM models inheriting from `Base` (SQLAlchemy declarative base):
+  - **User** → id (UUID PK), email (unique), hashed_password, name, role, refresh_tokens (JSON), created_at
+  - **Conversation** → id (UUID PK), user_id (FK to users.id), title, messages_count, created_at
+  - **Message** → id (UUID PK), conversation_id (FK to conversations.id), sender ("user"/"assistant"), content, status, metadata (JSON), created_at
+- Add relationships:
+  - `User.conversations = relationship("Conversation", back_populates="user")`
+  - `Conversation.messages = relationship("Message", back_populates="conversation")`
+- Update Pydantic schemas in `schemas/` to mirror ORM fields.
+- Use `func.now()` for timestamps, `UUID` for IDs, and async session commits.
+
+**Example snippet**
+```python
+from sqlalchemy import Column, String, DateTime, ForeignKey, JSON, func
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+import uuid
+from .base import Base
+
+class User(Base):
+    __tablename__ = "users"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email = Column(String, unique=True, index=True)
+    hashed_password = Column(String)
+    name = Column(String)
+    role = Column(String, default="user")
+    refresh_tokens = Column(JSON, default=list)   # store refresh tokens metadata
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    conversations = relationship("Conversation", back_populates="user")
+```
 
 **Acceptance**
 
-- Unit create/list works via a temporary dev script or Python shell.
+- ORM models map correctly; basic CRUD works in shell.
+- ORM models load correctly, Alembic generates migration, and test inserts/queries work 
 
-#### B03 — Auth Endpoints (Email/Password + Google OAuth2)
+#### B04 — Auth Endpoints (Email/Password + Google OAuth2)
 
 **Actions**
 
-- REST: `/api/auth/register`, `/api/auth/login`, `/api/auth/refresh`, `/api/auth/me`
+- Implement endpoints `/api/auth/register`, `/api/auth/login`, `/api/auth/refresh`, `/api/auth/me` using async SQLAlchemy sessions.
+- Replace Beanie calls like `await User.find_one(User.email == email)` with SQLAlchemy queries:
+  ```python
+  result = await session.execute(select(User).where(User.email == email))
+  user = result.scalars().first()
+    ```
+- For inserts(user creation):
+  ```python
+new_user = User(email=email, hashed_password=hashed, name=name)
+session.add(new_user)
+await session.commit()
+await session.refresh(new_user)
+    ``` 
+- Passwords hashed using bcrypt (same as before)
+- Tokens (JWT) logic unchanged — reuse security.py
 - Google OAuth: `/api/auth/google/login` (redirect URL), `/api/auth/google/callback`
 - Issue access (short) + refresh (long) tokens
 - CORS configured for http://localhost:5173
@@ -376,24 +433,54 @@ npm i -D jest @testing-library/react @testing-library/jest-dom @testing-library/
 - Register/login/refresh round-trip; /me authorized with Bearer token.
 - Google flow completes locally (or feature-flag if creds not yet ready).
 - Google OAuth provides a session and redirects to `ChatPage`
-- Register/login/refresh flows work end‑to‑end against MongoDB
+- Register/login/refresh flows work end-to-end against PostgreSQL (SQLAlchemy)
 - `Authorization: Bearer <access>` applied to protected API calls; auto‑refresh on 401
+- Database inserts/queries verified through SQLAlchemy sessions.
 
-#### B04 — Conversations & Messages CRUD
+#### B05 — Conversations & Messages CRUD
 
 **Actions**
 
-- /api/conversations GET/POST
-- /api/conversations/{id} GET/DELETE
-- /api/conversations/{id}/messages GET/POST
-- CRUD endpoints: conversations list/create/delete, messages list/create
-- Indexes: User.email, Conversation.user_id, Message.conversation_id
+- Implement endpoints using SQLAlchemy ORM + async session:
+  - **Conversations**
+    - GET: `select(Conversation).where(Conversation.user_id == current_user.id)`
+    - POST: create new conversation (insert → commit → refresh)
+    - DELETE: delete by `conversation_id`
+  - **Messages**
+    - GET: list messages by `conversation_id`
+    - POST: insert new message with `conversation_id` FK
+- Define relationships between models:
+  - `Conversation.user_id → users.id`
+  - `Message.conversation_id → conversations.id`
+- Remove Mongo indexes section — PostgreSQL automatically indexes PK/FK; add manual indexes only if needed.
+- Update Pydantic schemas for consistency with ORM models.
+
+**Example:**
+```python
+result = await session.execute(
+    select(Conversation).where(Conversation.user_id == current_user.id)
+)
+conversations = result.scalars().all()
+```
 
 **Acceptance**
 
-- CRUD returns validated schemas; indexes created on startup without error.
+- CRUD operations persist and retrieve conversations/messages via PostgreSQL.
+- Foreign keys and cascading deletes validated through Alembic migrations.
 
-#### B05 — Streaming (WebSocket)
+---
+
+## 🧠 TL;DR Summary check
+
+| Section | What You’re Doing/Editing | Summary |
+|----------|--------------------|----------|
+| **B03 (Models)** | Replace Beanie Documents with SQLAlchemy ORM models | Add Base, relationships, UUIDs, timestamps |
+| **B04 (Auth)** | Replace Beanie queries with SQLAlchemy `select()` | Update register/login queries |
+| **B05 (CRUD)** | Replace Beanie `.find()`/`.insert()` with SQLAlchemy session logic | Implement FK relations and ORM CRUD |
+
+---
+
+#### B06 — Streaming (WebSocket)
 
 **Actions**
 
@@ -412,7 +499,7 @@ npm i -D jest @testing-library/react @testing-library/jest-dom @testing-library/
 
 - Test client receives chunked tokens → final; DB contains full thread.
 
-#### B06 — Moderation & Safety
+#### B07 — Moderation & Safety
 
 **Actions**
 
@@ -425,7 +512,7 @@ npm i -D jest @testing-library/react @testing-library/jest-dom @testing-library/
 - Blocked content returns safe message; flags recorded
 - Admin logs show flagged items
 
-#### B07 — Admin & Observability
+#### B08 — Admin & Observability
 
 **Actions**
 
@@ -437,7 +524,7 @@ npm i -D jest @testing-library/react @testing-library/jest-dom @testing-library/
 
 - Admin Stats reflect seed data; logs are structured and searchable.
 
-#### B08 — Backend Tests
+#### B09 — Backend Tests
 
 **Actions**
 
@@ -504,7 +591,7 @@ npm i -D jest @testing-library/react @testing-library/jest-dom @testing-library/
 
 - docker/frontend.Dockerfile (Node 20, npm run dev -- --host)
 - docker/backend.Dockerfile (Python 3.11, uvicorn reload)
-- docker-compose.yml for frontend, backend, mongodb (+ volume)
+- docker-compose.yml for frontend, backend, postgres (image: postgres:16) , Add volume postgres_data.
 
 **Commands(PowerShell)**
 
