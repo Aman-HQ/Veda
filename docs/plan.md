@@ -14,37 +14,106 @@
 - **LLM:** Custom fine‑tuned local/service model integrated via `llm_provider.py` abstraction
 - **Containers:** Docker + docker-compose
 - **OS:** Windows 10/11 dev experience friendly, PowerShell commands shown
-- **Docs:** `docs/roadmap.md`, `docs/plan.md`
+- **Docs:** `docs/plan.md`
 - **Frontend-first:** Build full UI with mocks → then backend → integrate → harden.
 
 ---
 
 ## 1.Environments
 
-### 1.1 Local (docker-compose)
+### 1.1 Docker Compose Setup
 
-- **Services:** `frontend` (5173), `backend` (8000), `postgres` (5432)
-- Volumes for postgres data persistence
-- Hot reload for frontend/backend
+Below is an example `docker-compose.yml` for local development:
+
+```yaml
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: veda_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build: ./backend
+    container_name: veda_backend
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+
+  frontend:
+    build: ./frontend
+    container_name: veda_frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+
+```
 
 ### 1.2 Environment variables (.env.example)
 
 **Backend:**
 
-```
-DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/veda
+# -------------------------------
+# Ollama Configuration
+# -------------------------------
+OLLAMA_URL=http://localhost:11434          # Change if Ollama runs elsewhere
+OLLAMA_API_KEY=                            # Optional if Ollama requires an API key
+
+# -------------------------------
+# Pinecone Configuration
+# -------------------------------
+PINECONE_API_KEY=
+PINECONE_ENV=                              # Example: us-west1-gcp
+PINECONE_INDEX=veda-index
+
+# -------------------------------
+# PostgreSQL Configuration
+# -------------------------------
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+POSTGRES_DB=veda
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
+
+# -------------------------------
+# Authentication & Security
+# -------------------------------
 JWT_SECRET=replace_me
 JWT_ALG=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=15
 REFRESH_TOKEN_EXPIRE_DAYS=7
+
+# -------------------------------
+# Google OAuth Configuration
+# -------------------------------
 GOOGLE_CLIENT_ID=replace_me
 GOOGLE_CLIENT_SECRET=replace_me
 GOOGLE_OAUTH_REDIRECT_URI=http://localhost:5173/oauth/callback
+
+# -------------------------------
+# LLM / AI Provider Configuration
+# -------------------------------
 LLM_PROVIDER=local
 LLM_ENDPOINT=http://llm:8080
 ENABLE_MODERATION=true
 ENABLE_METRICS=false
-```
+
 
 **Frontend:**
 
@@ -53,6 +122,14 @@ VITE_API_BASE=http://localhost:8000
 VITE_WS_BASE=ws://localhost:8000
 VITE_GOOGLE_CLIENT_ID=replace_me
 ```
+
+### 1.3 Running Locally
+
+- Copy `.env.example` to `.env` and fill in the missing values.
+- Start all services:
+   ```bash
+   docker-compose up --build
+
 
 ## 2. Directory Guardrails (target structure)
 
@@ -131,6 +208,10 @@ veda/
    │  ├─ schemas/
    │  │  ├─ auth.py
    │  │  └─ chat.py
+   │  ├─ crud.py
+   │  │  ├─ user_crud.py
+   │  │  ├─ conversation_crud.py
+   │  │  └─ message_crud.py
    │  ├─ api/
    │  │  ├─ deps.py
    │  │  └─ routers/
@@ -140,10 +221,16 @@ veda/
    │  │     ├─ messages.py
    │  │     └─ stream.py
    │  ├─ services/
-   │  │  ├─ llm_provider.py   # custom fine-tuned model integration
-   │  │  └─ chat_manager.py
+   │  │  ├─ llm_provider.py   # orchestrates which model to call and in what order
+   │  │  ├─ chat_manager.py   # handles conversation flow and WebSocket streaming
+   │  │  └─ rag/
+   │  │     └─ pipeline.py   # LangChain RAG integration
    │  └─ tests/
    │     └─ test_auth.py
+   ├─ alembic/
+   │  ├─ env.py
+   │  ├─ script.py.mako
+   │  └─ versions/
    ├─ requirements.txt
    └─ Dockerfile
 
@@ -335,17 +422,72 @@ npm i -D jest @testing-library/react @testing-library/jest-dom @testing-library/
 - Add `/health` endpoint
 - Add requirements.txt (fastapi, uvicorn, pydantic, sqlalchemy[asyncio], asyncpg, alembic, bcrypt, python-jose[cryptography], python-multipart, httpx)
 
+**Development Dependencies (for PostgreSQL setup):**
+```bash
+pip install fastapi uvicorn sqlalchemy[asyncio] asyncpg alembic bcrypt python-jose[cryptography] python-multipart
+```
+**(Dev/test optional)**
+```bash
+pip install pytest pytest-asyncio httpx
+```
+
 **Acceptance**
 
 - `uvicorn app.main:app --reload` serves /health 200.
 
 #### B01 — Config, Security, DB
 
+**Reference example  Directory Guardrails (target structure) for backend setup:**
+
 **Actions**
 
 - Config module `core/config.py`: load envs, CORS origins
+
+**Example (`app/config.py`):**
+
+```python
+import os
+
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql+asyncpg://postgres:postgres@localhost:5432/veda"
+)
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
+OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "")
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY", "")
+PINECONE_ENV = os.getenv("PINECONE_ENV", "")
+PINECONE_INDEX = os.getenv("PINECONE_INDEX", "veda-index")
+```
 - Security module `core/security.py`: password hash/verify (bcrypt), JWT create/verify, token payloads
 - db/session.py: create async engine and sessionmaker
+
+**Example (`app/db.py`)**
+
+```python
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker, declarative_base
+from .config import DATABASE_URL
+
+# Create async engine (future=True recommended)
+engine = create_async_engine(DATABASE_URL, echo=True, future=True)
+
+# Async session factory
+AsyncSessionLocal = sessionmaker(
+    bind=engine, class_=AsyncSession, expire_on_commit=False, autoflush=False
+)
+
+Base = declarative_base()
+
+# Dependency for FastAPI
+async def get_db():
+    async with AsyncSessionLocal() as session:
+        yield session
+```
+```md
+Notes:
+- `expire_on_commit=False` avoids expired objects; `autoflush=False` is optional.
+- Use `async with session.begin():` in handlers to ensure commit/rollback semantics when grouping operations.
+```
 - db/base.py: define declarative base for models
 - db/init_db.py: initialize database, optionally run alembic upgrade head
 
@@ -358,10 +500,44 @@ npm i -D jest @testing-library/react @testing-library/jest-dom @testing-library/
 
 **Actions**
 - Initialize Alembic in backend/
+```python
+cd backend
+alembic init alembic
+```
 - Configure `alembic.ini` with `sqlalchemy.url = DATABASE_URL`
 - Generate migration scripts with `alembic revision --autogenerate -m "init"`
 - Apply migrations using `alembic upgrade head`
 
+***Example (alembic/env.py) adjustments for async engine:***
+
+```python
+from logging.config import fileConfig
+from sqlalchemy import create_engine, pool
+from alembic import context
+from app.db import Base
+from app.config import DATABASE_URL
+
+# ... usual config loading ...
+target_metadata = Base.metadata
+
+def run_migrations_online():
+    connectable = create_engine(
+        DATABASE_URL.replace('+asyncpg', ''),  # sync engine for autogenerate
+        poolclass=pool.NullPool,
+    )
+
+    with connectable.connect() as connection:
+        context.configure(connection=connection, target_metadata=target_metadata)
+        with context.begin_transaction():
+            context.run_migrations()
+```
+```md
+Then create & apply:
+
+```bash
+alembic revision --autogenerate -m "init"
+alembic upgrade head
+```
 **Acceptance**
 - Tables created via Alembic; migration history tracked.
 
@@ -380,24 +556,49 @@ npm i -D jest @testing-library/react @testing-library/jest-dom @testing-library/
 - Update Pydantic schemas in `schemas/` to mirror ORM fields.
 - Use `func.now()` for timestamps, `UUID` for IDs, and async session commits.
 
-**Example snippet**
+**Example (`app/models.py`)**
 ```python
-from sqlalchemy import Column, String, DateTime, ForeignKey, JSON, func
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
 import uuid
-from .base import Base
+from sqlalchemy import Column, String, DateTime, ForeignKey, JSON, func
+from sqlalchemy.dialects.postgresql import UUID, TEXT
+from sqlalchemy.orm import relationship
+from .db import Base
 
 class User(Base):
     __tablename__ = "users"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    email = Column(String, unique=True, index=True)
-    hashed_password = Column(String)
-    name = Column(String)
-    role = Column(String, default="user")
-    refresh_tokens = Column(JSON, default=list)   # store refresh tokens metadata
+    email = Column(String(256), unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=True)
+    name = Column(String(256), nullable=True)
+    role = Column(String(50), default="user")
+    refresh_tokens = Column(JSON, default=list)  # store refresh tokens metadata
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    conversations = relationship("Conversation", back_populates="user")
+
+    conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    title = Column(String(512), nullable=True)
+    messages_count = Column(String, default="0")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", back_populates="conversations")
+    messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan")
+
+class Message(Base):
+    __tablename__ = "messages"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    conversation_id = Column(UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False)
+    sender = Column(String(50), nullable=False)  # "user" or "assistant"
+    content = Column(TEXT, nullable=False)
+    status = Column(String(50), default="sent")
+    metadata = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    conversation = relationship("Conversation", back_populates="messages")
+
 ```
 
 **Acceptance**
@@ -437,7 +638,66 @@ await session.refresh(new_user)
 - `Authorization: Bearer <access>` applied to protected API calls; auto‑refresh on 401
 - Database inserts/queries verified through SQLAlchemy sessions.
 
-#### B05 — Conversations & Messages CRUD
+### B05 — FastAPI Integration 
+```md
+This clarifies how the backend integrates with SQLAlchemy.
+This clarifies how to configure Alembic for PostgreSQL + async setup.
+
+**Example (`app/main.py`):**
+```python
+from fastapi import FastAPI, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from .db import engine, Base, get_db
+from .models import User, Message, Conversation
+
+app = FastAPI()
+
+@app.on_event("startup")
+async def startup():
+    # For development only: create tables if not present.
+    # Prefer alembic for production migrations.
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+@app.post("/chat")
+async def chat(username: str, user_message: str, db: AsyncSession = Depends(get_db)):
+    # Save user message (use transaction)
+    result = await db.execute(select(User).where(User.email == username))
+    user = result.scalars().first()
+
+    if not user:
+        user = User(email=username)
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+
+    # create conversation if needed (simple example)
+    # For demo, create or reuse a default conversation:
+    conv = Conversation(user_id=user.id, title="Default")
+    db.add(conv)
+    await db.commit()
+    await db.refresh(conv)
+
+    # Add user message
+    msg = Message(conversation_id=conv.id, sender="user", content=user_message)
+    db.add(msg)
+    await db.commit()
+    await db.refresh(msg)
+
+    # Generate response (your LLM call)
+    response = "This is where your model reply goes."
+
+    bot_msg = Message(conversation_id=conv.id, sender="assistant", content=response)
+    db.add(bot_msg)
+    await db.commit()
+    await db.refresh(bot_msg)
+
+    return {"response": response}
+
+``` 
+
+#### B06 — Conversations & Messages CRUD
 
 **Actions**
 
@@ -455,12 +715,26 @@ await session.refresh(new_user)
 - Remove Mongo indexes section — PostgreSQL automatically indexes PK/FK; add manual indexes only if needed.
 - Update Pydantic schemas for consistency with ORM models.
 
-**Example:**
+---
+**CRUD patterns Example:**
+
+**Get a conversation list for user:**
 ```python
-result = await session.execute(
-    select(Conversation).where(Conversation.user_id == current_user.id)
-)
-conversations = result.scalars().all()
+from sqlalchemy import select
+
+async def list_conversations(user_id, db: AsyncSession):
+    result = await db.execute(select(Conversation).where(Conversation.user_id == user_id))
+    return result.scalars().all()
+```
+**Insert message with transaction**
+```python
+async def create_message(conversation_id, sender, content, db: AsyncSession):
+    async with db.begin():
+        msg = Message(conversation_id=conversation_id, sender=sender, content=content)
+        db.add(msg)
+    # After context, transaction committed
+    await db.refresh(msg)
+    return msg
 ```
 
 **Acceptance**
@@ -468,19 +742,8 @@ conversations = result.scalars().all()
 - CRUD operations persist and retrieve conversations/messages via PostgreSQL.
 - Foreign keys and cascading deletes validated through Alembic migrations.
 
----
 
-## 🧠 TL;DR Summary check
-
-| Section | What You’re Doing/Editing | Summary |
-|----------|--------------------|----------|
-| **B03 (Models)** | Replace Beanie Documents with SQLAlchemy ORM models | Add Base, relationships, UUIDs, timestamps |
-| **B04 (Auth)** | Replace Beanie queries with SQLAlchemy `select()` | Update register/login queries |
-| **B05 (CRUD)** | Replace Beanie `.find()`/`.insert()` with SQLAlchemy session logic | Implement FK relations and ORM CRUD |
-
----
-
-#### B06 — Streaming (WebSocket)
+#### B07 — Streaming (WebSocket)
 
 **Actions**
 
@@ -493,13 +756,219 @@ conversations = result.scalars().all()
   ```
 - services/llm_provider.py: start with echo/markov dev mode
 - services/chat_manager.py: enqueue user msg, stream assistant, persist partials, finalize
+
+**Example (in router):(`api/routers/messages.py`)**
+```python
+from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.api.deps import get_db, get_current_user
+from app.services.chat_manager import ChatManager
+
+router = APIRouter()
+
+@router.post("/{conversation_id}/messages")
+async def create_message(conversation_id: str, payload: dict, db: AsyncSession = Depends(get_db), user = Depends(get_current_user)):
+    text = payload.get("text")
+    audio = payload.get("audio")  # binary or base64 if implemented
+    image = payload.get("image")  # base64 or URL
+    manager = ChatManager(db)
+    answer = await manager.handle_user_message(conversation_id, user.id, text=text, audio=audio, image=image)
+    return {"answer": answer}
+```
+
+- Extend payload to support image input (`payload["image"]` as base64 or multipart).  
+  `ChatManager.handle_user_message` should forward `image` to `llm_provider.process_pipeline(image=...)` when provided.
+- Inside `llm_provider.py`, detect `image` input and call appropriate Ollama multimodal model (e.g., `llava` or `bakllava`) before summarization or final response.
+
 - Append server-side health disclaimer to assistant messages
+
+**NOTE**
+For WebSocket flow, call ChatManager.handle_user_message and forward streaming via the ws connection (use ws_streamer that wraps websocket.send_json for chunk/done).
+
 
 **Acceptance**
 
-- Test client receives chunked tokens → final; DB contains full thread.
+- Test client receives chunked tokens → final; 
+- DB contains full thread.
 
-#### B07 — Moderation & Safety
+#### B07.5 — Multi-Model Orchestration (LLM Pipeline)
+
+**Purpose**
+- Orchestrate multiple specialized models (STT, summarizer, RAG, main answerer) using **Ollama** as the unified model host and **Pinecone** as the vector DB for RAG. All orchestration is done server-side via `llm_provider.py` called from `chat_manager.py`.
+
+**Actions**
+- Update `core/config.py` to include Ollama + Pinecone settings (OLLAMA_URL, OLLAMA_API_KEY optional, PINECONE_API_KEY, PINECONE_ENV, PINECONE_INDEX).
+- Keep `services/llm_provider.py` as the single orchestrator. Implement Ollama calls inside this file 
+- Add `services/rag/pipeline.py` to implement LangChain-style retrieval from Pinecone (vector index) and return ranked context docs.
+- Implement `services/chat_manager.py` to:
+  - persist user messages,
+  - call `llm_provider.process_pipeline(audio=None, image=None, text=None, opts={})`,
+  - stream tokens back to the frontend using the existing WebSocket chunk/done protocol,
+  - persist assistant message(s) after finished/partially while streaming if desired.
+- Provide dev-mode toggles in config to run a canned-responses mode for unit tests.
+- Add minimal test coverage for the pipeline where model calls are mocked/canned.
+
+**Design notes**
+- **Ollama**: use Ollama's local HTTP API or Python client (via async HTTP client like `httpx`) to call different model names (e.g., `whisper`, `llama-3.2`, `medgemma-4b-it`) sequentially from inside `llm_provider.process_pipeline`.
+- **RAG**: `services/rag/pipeline.py` should expose `async def retrieve(query, top_k=5)` that queries Pinecone (via Pinecone client or LangChain retriever), returns context docs used by the final model prompt.
+- **Orchestration**: Typical pipeline: `audio -> (Whisper) -> text -> (Llama summarizer) -> summary -> (RAG retrieve) -> docs -> (MedGemma) -> final_answer`.
+- Use config flags to skip steps (e.g., `SKIP_SUMMARIZER=true`) or to select alternative models.
+
+**Files to create**
+- `backend/app/services/llm_provider.py`  # calls Ollama API and orchestrates pipeline
+- `backend/app/services/chat_manager.py`  # chat flow + streaming integration
+- `backend/app/services/rag/pipeline.py`  # LangChain/Pinecone retriever wrapper
+
+**Minimal code: Ollama (async) + Pinecone RAG sketch**
+
+Note: Ollama doesn’t have an official async SDK (use httpx to call the local Ollama REST API). These examples use httpx (async).
+
+**Example-(`app/services/llm_provider.py`)**
+```python
+import os
+import httpx
+from typing import Optional, List, Dict
+from .rag.pipeline import RAGPipeline
+from app.core.config import OLLAMA_URL, OLLAMA_API_KEY  # update config to export these
+
+OLLAMA_URL = OLLAMA_URL  # e.g. "http://localhost:11434"
+
+class OllamaClient:
+    def __init__(self, base_url: str = OLLAMA_URL, api_key: Optional[str] = None):
+        self.base = base_url.rstrip("/")
+        self.headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+
+    async def chat(self, model: str, messages: List[Dict], timeout: int = 60):
+        # Uses Ollama stream or simple chat endpoint. Here we use non-streaming /chat for simplicity.
+        url = f"{self.base}/api/chat"
+        payload = {"model": model, "messages": messages}
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.post(url, json=payload, headers=self.headers)
+            r.raise_for_status()
+            return r.json()
+
+class LLMProvider:
+    def __init__(self, cfg=None):
+        self.client = OllamaClient()
+        self.rag = RAGPipeline()
+
+    async def process_pipeline(self, audio: Optional[bytes] = None, text: Optional[str] = None, opts: dict = None) -> str:
+        opts = opts or {}
+        # 1) STT via Ollama (if audio)
+        if audio:
+            # send audio to Ollama whisper model — model naming can vary
+            # here we send base64 or appropriate payload depending on your Ollama setup
+            resp = await self.client.chat("whisper", [{"role":"user","content":"<audio_payload_placeholder>"}])
+            text = resp["message"]["content"]
+
+        if not text:
+            raise ValueError("No text provided")
+
+        # 2) Summarize with Llama3.2 (optional)
+        if not opts.get("skip_summarizer"):
+            resp = await self.client.chat("llama-3.2", [{"role":"user", "content": f"Summarize: {text}"}])
+            summary = resp["message"]["content"]
+        else:
+            summary = text
+
+        # 3) RAG retrieval (Pinecone)
+        docs = []
+        if not opts.get("skip_rag"):
+            docs = await self.rag.retrieve(summary, top_k=5)
+
+        # 4) Final MedGemma answer - include docs in prompt
+        prompt = summary
+        if docs:
+            ctx = "\n\n".join([d["text"] for d in docs])
+            prompt = f"Context:\n{ctx}\n\nUser: {summary}"
+
+        final_resp = await self.client.chat("medgemma-4b-it", [{"role":"user", "content": prompt}])
+        final_text = final_resp["message"]["content"]
+        return final_text
+```
+Notes: adjust chat endpoint payload per your Ollama API (streaming vs non-streaming). If you want token streaming, call Ollama streaming endpoints and forward chunks via WebSocket from chat_manager.
+
+**Example-(`app/services/rag/pipeline.py`)** 
+# RAG (LangChain + Pinecone sketch)
+```python
+from typing import List, Dict, Optional
+import os
+# Use pinecone client + langchain if desired. This is a simple wrapper prototype.
+import pinecone
+from app.core.config import PINECONE_API_KEY, PINECONE_ENV, PINECONE_INDEX
+
+pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENV)
+index = pinecone.Index(PINECONE_INDEX)
+
+class RAGPipeline:
+    def __init__(self, index=None):
+        self.index = index or index
+
+    async def retrieve(self, query: str, top_k: int = 5) -> List[Dict]:
+        """
+        Sync pinecone client is used here; if you need async, run in threadpool.
+        Returns list of {'id':..., 'text':..., 'score': ...}
+        """
+        # simple vectorization step needed (e.g., use an embedding model). Here we assume you have a function embed(query).
+        # Replace `embed` with your embedding call (OpenAI, Ollama embedding, or local).
+        embedding = await self._embed_text(query)
+        res = self.index.query(vector=embedding, top_k=top_k, include_metadata=True)
+        docs = []
+        for match in res["matches"]:
+            docs.append({"id": match["id"], "text": match["metadata"].get("text", ""), "score": match["score"]})
+        return docs
+
+    async def _embed_text(self, text: str):
+        # Implement embedding call — can be Ollama embeddings or another provider.
+        # Placeholder: return a zero-vector or call an embedding model.
+        return [0.0] * 1536
+```
+Notes: Pinecone's Python client is synchronous; you can call it inside run_in_executor if you want async behavior. For production, use a proper embedder and store text in metadata.
+
+**Example-(`app/services/chat_manager.py`)**
+```python
+from .llm_provider import LLMProvider
+from sqlalchemy.ext.asyncio import AsyncSession
+
+class ChatManager:
+    def __init__(self, db: AsyncSession, provider: LLMProvider = None):
+        self.db = db
+        self.provider = provider or LLMProvider()
+
+    async def handle_user_message(self, conversation_id, user_id, text=None, audio=None, ws_streamer=None):
+        # Persist user message (implement create_message in your CRUD)
+        # await create_message(conversation_id, "user", text, self.db)
+
+        # Call pipeline
+        final_answer = await self.provider.process_pipeline(audio=audio, text=text)
+
+        # Send streaming chunks via ws_streamer
+        if ws_streamer:
+            chunk_size = 256
+            for i in range(0, len(final_answer), chunk_size):
+                await ws_streamer.send_chunk(conversation_id, final_answer[i:i+chunk_size])
+            await ws_streamer.send_done(conversation_id, final_answer)
+
+        # Persist assistant message
+        # await create_message(conversation_id, "assistant", final_answer, self.db)
+        return final_answer
+```
+
+**Tests**
+- Add a test file backend/app/tests/test_pipeline.py with mock provider or set env USE_DEV_LLM=true so LLMProvider returns canned responses. Test that:
+   - ChatManager.handle_user_message returns final text,
+   - For WS: mock ws_streamer receives send_chunk and send_done calls.
+
+**Acceptance**
+- Given audio , image or text input, back-end runs: STT (Ollama/Whisper) → summarizer (Ollama/Llama3.2) → RAG retrieval (Pinecone) → final answer (Ollama/MedGemma).  
+- Final response is streamed to frontend via `chunk`/`done` and saved to DB.  
+- All model choices/config are toggled from `core/config.py` (no hard-coded model names).
+- Dev-mode: pipeline returns canned response and saved to DB. 
+- Audio flow: simulate audio payload -> pipeline returns transcription-based answer.
+- RAG flow: seed Pinecone test index and verify docs influence final prompt (can inspect logs).
+
+
+#### B08 — Moderation & Safety
 
 **Actions**
 
@@ -512,7 +981,7 @@ conversations = result.scalars().all()
 - Blocked content returns safe message; flags recorded
 - Admin logs show flagged items
 
-#### B08 — Admin & Observability
+#### B09 — Admin & Observability
 
 **Actions**
 
@@ -524,7 +993,8 @@ conversations = result.scalars().all()
 
 - Admin Stats reflect seed data; logs are structured and searchable.
 
-#### B09 — Backend Tests
+
+#### B010 — Backend Tests
 
 **Actions**
 
@@ -533,6 +1003,23 @@ conversations = result.scalars().all()
 **Acceptance**
 
 - pytest green locally.
+
+```md
+**Backend PostgreSQL Migration Checklist**
+
+- [ ] Replace Beanie/Motor deps with SQLAlchemy[asyncio] + asyncpg + Alembic.
+- [ ] Implement db.py (engine/session), models.py (ORM), config.py (env loader).
+- [ ] Update CRUD/auth to use SQLAlchemy sessions.
+- [ ] Configure Alembic for migrations.
+- [ ] Verify docker-compose includes postgres service and DATABASE_URL.
+
+**Developer note (integration)**
+
+- Frontend sends user input (text or audio) to messages POST or WebSocket. `api/routers/messages.py` or ws route should call `ChatManager.handle_user_message(...)`.
+- `chat_manager` must call `llm_provider.process_pipeline(...)` to centralize model orchestration.
+- RAG retrieval (Pinecone) is done inside `services/rag/pipeline.py` and its output is passed to the final model prompt.
+- For unit tests, use dev-mode (canned responses) inside `llm_provider`.
+
 
 ### Phase I — Integration & Advanced Features
 

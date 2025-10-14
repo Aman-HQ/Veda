@@ -12,7 +12,7 @@ alwaysApply: true
 
 ## General
 - Use **JavaScript** only (no TypeScript).
-- Use **React.js** for frontend, **FastAPI** for backend, and **MongoDB** for database.
+- Use **React.js** for frontend, **FastAPI** for backend, and **postgreSQL** for database.
 - Follow modular, clean, and well-commented code practices.
 
 ## Development Flow
@@ -23,7 +23,7 @@ alwaysApply: true
 - Always align with `plan.md` for overall structure.
 
 ## UI
-- Similar layout to ChatGPT, but with a **light gradient background** (no dark theme).
+- Similar layout to ChatGPT, but with a **light gradient background**+ dark theme option.
 - Ensure that UI colors and styles remain consistent across the entire app.
 - Must be fully **responsive** for desktop and mobile.
 - Use Tailwind CSS for styling.
