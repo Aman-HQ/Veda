@@ -646,7 +646,7 @@ await session.refresh(new_user)
 - `Authorization: Bearer <access>` applied to protected API calls; auto‑refresh on 401
 - Database inserts/queries verified through SQLAlchemy sessions.
 
-### B05 — FastAPI Integration 
+#### B05 — FastAPI Integration 
 ```md
 This clarifies how the backend integrates with SQLAlchemy.
 This clarifies how to configure Alembic for PostgreSQL + async setup.
@@ -923,7 +923,7 @@ class LLMProvider:
 Notes: adjust chat endpoint payload per your Ollama API (streaming vs non-streaming). If you want token streaming, call Ollama streaming endpoints and forward chunks via WebSocket from chat_manager.
 
 **Example-(`app/services/rag/pipeline.py`)** 
-# RAG (LangChain + Pinecone sketch)
+**RAG (LangChain + Pinecone sketch)**
 ```python
 from typing import List, Dict, Optional
 import os
@@ -1126,6 +1126,7 @@ and expose /metrics.
 - `chat_manager` must call `llm_provider.process_pipeline(...)` to centralize model orchestration.
 - RAG retrieval (Pinecone) is done inside `services/rag/pipeline.py` and its output is passed to the final model prompt.
 - For unit tests, use dev-mode (canned responses) inside `llm_provider`.
+```
 
 
 ### Phase I — Integration & Advanced Features

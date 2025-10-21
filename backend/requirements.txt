@@ -1,0 +1,42 @@
+# Core FastAPI dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Database
+sqlalchemy[asyncio]==2.0.23
+asyncpg==0.29.0
+alembic==1.13.0
+
+# Authentication & Security
+bcrypt==4.1.1
+python-jose[cryptography]==3.3.0
+python-multipart==0.0.6
+passlib[bcrypt]==1.7.4
+
+# HTTP Client
+httpx==0.25.2
+
+# Environment variables
+python-dotenv==1.0.0
+
+# Testing (optional, for development)
+pytest==7.4.3
+pytest-asyncio==0.21.1
+
+# Logging
+loguru==0.7.2
+
+# CORS & Middleware
+starlette==0.27.0
+
+# Pinecone (for RAG)
+pinecone-client==3.0.0
+
+# LangChain (optional, for RAG pipeline)
+langchain==0.1.0
+langchain-community==0.0.10
+
+# Monitoring (optional)
+prometheus-fastapi-instrumentator==6.1.0
