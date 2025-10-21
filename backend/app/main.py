@@ -6,28 +6,25 @@ Main application entry point with health check endpoint.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-import os
 from datetime import datetime
+from sqlalchemy import text
+from app.core import config
+from app.db.session import engine
+from app.db.init_db import init_db
 
 # Create FastAPI app instance
 app = FastAPI(
-    title="Veda Chatbot API",
+    title=config.APP_NAME,
     description="Healthcare chatbot API with streaming support",
-    version="1.0.0",
+    version=config.APP_VERSION,
     docs_url="/docs",
     redoc_url="/redoc"
 )
 
-# CORS configuration
-# Allow localhost for development
-origins = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
-
+# CORS configuration using config module
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=config.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -38,17 +35,29 @@ app.add_middleware(
 async def health_check():
     """
     Health check endpoint to verify the service is running.
+    Tests database connectivity as part of health check.
     
     Returns:
         dict: Status information including timestamp and service status
     """
+    db_status = "unknown"
+    
+    try:
+        # Test database connection
+        async with engine.begin() as conn:
+            await conn.execute(text("SELECT 1"))
+        db_status = "connected"
+    except Exception as e:
+        db_status = f"error: {str(e)}"
+    
     return JSONResponse(
         status_code=200,
         content={
             "status": "healthy",
             "service": "veda-backend",
             "timestamp": datetime.utcnow().isoformat(),
-            "version": "1.0.0"
+            "version": config.APP_VERSION,
+            "database": db_status
         }
     )
 
@@ -73,11 +82,28 @@ async def root():
 async def startup_event():
     """
     Runs when the application starts.
-    Future: Initialize database connections, load models, etc.
+    Initializes database connections and verifies connectivity.
     """
     print("🚀 Veda Backend starting up...")
     print(f"📝 Documentation available at: /docs")
     print(f"❤️  Health check available at: /health")
+    
+    # Test database connection
+    try:
+        print("🔌 Testing database connection...")
+        async with engine.begin() as conn:
+            # Simple connectivity test
+            await conn.execute(text("SELECT 1"))
+        print(f"✓ Database connected successfully: {config.POSTGRES_DB}@{config.POSTGRES_HOST}")
+        
+        # Initialize database tables (for development)
+        # In production, use Alembic migrations instead
+        if config.DEBUG:
+            print("🔧 Initializing database tables...")
+            await init_db()
+    except Exception as e:
+        print(f"❌ Database connection failed: {e}")
+        print("⚠️  Application will start but database operations will fail")
 
 
 # Shutdown event
@@ -85,9 +111,16 @@ async def startup_event():
 async def shutdown_event():
     """
     Runs when the application shuts down.
-    Future: Close database connections, cleanup resources, etc.
+    Closes database connections and cleanup resources.
     """
     print("👋 Veda Backend shutting down...")
+    
+    # Close database connections
+    try:
+        await engine.dispose()
+        print("✓ Database connections closed")
+    except Exception as e:
+        print(f"⚠️  Error closing database: {e}")
 
 
 if __name__ == "__main__":

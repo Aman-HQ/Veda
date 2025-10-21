@@ -16,8 +16,8 @@ alwaysApply: true
 - Follow modular, clean, and well-commented code practices.
 
 ## Development Flow
-- first Execute Phase F (F00–F09) **frontend-only** exactly as defined in `plan.md`.
-- Until Phase F is completed,  Do NOT modify: backend/** , docker/**, docker-compose.yml, .env (except adding FRONTEND vars in .env.example).
+- Execute Phases as instructed, first Phase F (F00–F09) exactly as defined in `plan.md`.
+- when Phase F is completed, similarly proceed with following : backend/** , docker/**, docker-compose.yml, .env.
 - Use mocks: VITE_USE_MOCK_API=true, services/mockApi.js must be used for data; do not call a live backend.
 - WebSocket: use mocked streaming in hooks/useWebSocket.js until `Phase F` is completed.
 - Always align with `plan.md` for overall structure.
