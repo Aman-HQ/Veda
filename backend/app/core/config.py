@@ -22,7 +22,7 @@ POSTGRES_PORT = os.getenv("POSTGRES_PORT", "5432")
 # -------------------------------
 # Authentication & Security
 # -------------------------------
-JWT_SECRET = os.getenv("JWT_SECRET", "replace_me_with_secure_secret_key")
+JWT_SECRET = os.getenv("JWT_SECRET", "97728b44f6b8903707e376ac088107b7474fa644089e191111a182ec04277496")
 JWT_ALGORITHM = os.getenv("JWT_ALG", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))

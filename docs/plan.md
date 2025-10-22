@@ -41,6 +41,14 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  adminer:
+    image: adminer
+    container_name: veda_adminer
+    depends_on:
+      - postgres
+    ports:
+      - "8080:8080"
+
   backend:
     build: ./backend
     container_name: veda_backend
