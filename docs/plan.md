@@ -243,6 +243,8 @@ veda/
    │  ├─ env.py
    │  ├─ script.py.mako
    │  └─ versions/
+   ├─ scripts/
+   │  └── seed_vector_index.py
    ├─ requirements.txt
    └─ Dockerfile
 
@@ -832,7 +834,12 @@ For WebSocket flow, call ChatManager.handle_user_message and forward streaming v
 **Actions**
 - Update `core/config.py` to include Ollama + Pinecone settings (OLLAMA_URL, OLLAMA_API_KEY optional, PINECONE_API_KEY, PINECONE_ENV, PINECONE_INDEX).
 - Keep `services/llm_provider.py` as the single orchestrator. Implement Ollama calls inside this file 
-- Add `services/rag/pipeline.py` to implement LangChain-style retrieval from Pinecone (vector index) and return ranked context docs.
+- Add services/rag/pipeline.py implementing LangChain-based RAGPipeline that handles:
+  - document ingestion (loaders),
+  - chunking (splitters),
+  - embedding (via Ollama embeddings),
+  - vector upsertion to Pinecone,
+  - retrieval via LangChain retriever abstraction (return ranked context docs).
 - Implement `services/chat_manager.py` to:
   - persist user messages,
   - call `llm_provider.process_pipeline(audio=None, image=None, text=None, opts={})`,
@@ -845,12 +852,11 @@ For WebSocket flow, call ChatManager.handle_user_message and forward streaming v
 - **Ollama**: use Ollama's local HTTP API or Python client (via async HTTP client like `httpx`) to call different model names (e.g., `whisper`, `llama-3.2`, `medgemma-4b-it`) sequentially from inside `llm_provider.process_pipeline`.
 - **RAG**: `services/rag/pipeline.py` should expose `async def retrieve(query, top_k=5)` that queries Pinecone (via Pinecone client or LangChain retriever), returns context docs used by the final model prompt.
 ```md
-**Pinecone Embeddings & Indexing**
-- Decide embedding provider (i.e,Ollama embeddings). Add env var EMBED_PROVIDER.
-- Store embeddings with metadata: `{id, text, source, created_at}`.
-- Ingestion pipeline:
-  1. Extract text → 2. Compute embedding via EMBED_PROVIDER → 3. upsert to Pinecone index with metadata.
-- Include sample embed command in docs and add `scripts/seed_vector_index.py`.
+**LangChain RAG Integration Notes**
+- Uses LangChain `PineconeVectorStore` for all embedding and retrieval logic.
+- Embeddings provider configurable via `EMBEDDING_MODEL` in config.
+- To seed data: run `scripts/seed_vector_index.py` to load and index your local docs.
+- Retrieval automatically uses LangChain retriever abstraction.
 ```
 
 - **Orchestration**: Typical pipeline: `audio -> (Whisper) -> text -> (Llama summarizer) -> summary -> (RAG retrieve) -> docs -> (MedGemma) -> final_answer`.
@@ -933,39 +939,61 @@ Notes: adjust chat endpoint payload per your Ollama API (streaming vs non-stream
 **Example-(`app/services/rag/pipeline.py`)** 
 **RAG (LangChain + Pinecone sketch)**
 ```python
-from typing import List, Dict, Optional
+from typing import List, Dict
 import os
-# Use pinecone client + langchain if desired. This is a simple wrapper prototype.
+from langchain_pinecone import PineconeVectorStore
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_community.embeddings import OllamaEmbeddings
+from langchain_community.document_loaders import DirectoryLoader, TextLoader
+from langchain.schema import Document
 import pinecone
-from app.core.config import PINECONE_API_KEY, PINECONE_ENV, PINECONE_INDEX
+from app.core.config import (
+    PINECONE_API_KEY,
+    PINECONE_ENV,
+    PINECONE_INDEX,
+    EMBEDDING_MODEL,
+    DOCUMENTS_PATH,
+    CHUNK_SIZE,
+    CHUNK_OVERLAP
+)
 
 pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENV)
 index = pinecone.Index(PINECONE_INDEX)
 
 class RAGPipeline:
-    def __init__(self, index=None):
-        self.index = index or index
+    def __init__(self):
+        pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENV)
+        self.index = pinecone.Index(PINECONE_INDEX)
+        self.embeddings = OllamaEmbeddings(model=EMBEDDING_MODEL)
+        self.vectorstore = PineconeVectorStore(index=self.index, embedding=self.embeddings)
+
+    async def ingest_docs(self, path: str = DOCUMENTS_PATH):
+        """Loads, splits, embeds and upserts documents into Pinecone."""
+        loader = DirectoryLoader(path, glob="**/*.txt", loader_cls=TextLoader)
+        docs = loader.load()
+        splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
+        chunks = splitter.split_documents(docs)
+        self.vectorstore.add_documents(chunks)
+        print(f"✅ Indexed {len(chunks)} chunks into Pinecone")
 
     async def retrieve(self, query: str, top_k: int = 5) -> List[Dict]:
-        """
-        Sync pinecone client is used here; if you need async, run in threadpool.
-        Returns list of {'id':..., 'text':..., 'score': ...}
-        """
-        # simple vectorization step needed (e.g., use an embedding model). Here we assume you have a function embed(query).
-        # Replace `embed` with your embedding call (OpenAI, Ollama embedding, or local).
-        embedding = await self._embed_text(query)
-        res = self.index.query(vector=embedding, top_k=top_k, include_metadata=True)
-        docs = []
-        for match in res["matches"]:
-            docs.append({"id": match["id"], "text": match["metadata"].get("text", ""), "score": match["score"]})
-        return docs
-
-    async def _embed_text(self, text: str):
-        # Implement embedding call — can be Ollama embeddings or another provider.
-        # Placeholder: return a zero-vector or call an embedding model.
-        return [0.0] * 1536
+        """Retrieve relevant documents from Pinecone using LangChain retriever."""
+        retriever = self.vectorstore.as_retriever(search_kwargs={"k": top_k})
+        results = retriever.get_relevant_documents(query)
+        return [{"text": doc.page_content, "metadata": doc.metadata} for doc in results]
 ```
 Notes: Pinecone's Python client is synchronous; you can call it inside run_in_executor if you want async behavior. For production, use a proper embedder and store text in metadata.
+If you ever face performance issues, you can offload them with:
+<!-- - It’s an optional optimization if you want to offload blocking LangChain/Pinecone retrieval to a background thread (so your FastAPI event loop stays smooth).
+- You only add it inside the retrieve() function of your RAGPipeline class — and only if you ever experience slow responses or “event loop blocked” warnings. -->
+```python
+from asyncio import to_thread
+results = await to_thread(retriever.get_relevant_documents, query)
+```
+
+**Utility Script (for ingestion)**
+Create `scripts/seed_vector_index.py` to call `RAGPipeline.ingest_docs()` once with your dataset path.
+This seeds the Pinecone index initially for RAG use.
 
 **Example-(`app/services/chat_manager.py`)**
 ```python
@@ -1005,6 +1033,9 @@ class ChatManager:
 - Given audio , image or text input, back-end runs: STT (Ollama/Whisper) → summarizer (Ollama/Llama3.2) → RAG retrieval (Pinecone) → final answer (Ollama/MedGemma).  
 - Final response is streamed to frontend via `chunk`/`done` and saved to DB.  
 - All model choices/config are toggled from `core/config.py` (no hard-coded model names).
+- RAGPipeline uses LangChain components (loader, splitter, embedder, retriever) end-to-end.
+- Pinecone index contains embedded text chunks accessible via LangChain retriever.
+- Pipeline tested by seeding sample docs and confirming retrieved context appears in final prompt.
 - Dev-mode: pipeline returns canned response and saved to DB. 
 - Audio flow: simulate audio payload -> pipeline returns transcription-based answer.
 - RAG flow: seed Pinecone test index and verify docs influence final prompt (can inspect logs).
