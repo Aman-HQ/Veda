@@ -22,11 +22,9 @@ class User(Base):
     refresh_tokens = Column(JSON, default=list)  # Store refresh tokens metadata
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
-    # Relationships will be added when other models are created
-    # conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
-  # Relationships
-conversations = relationship(
-    "Conversation",
-    back_populates="user",
-    cascade="all, delete-orphan"
-)
+    # Relationships
+    conversations = relationship(
+        "Conversation",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )

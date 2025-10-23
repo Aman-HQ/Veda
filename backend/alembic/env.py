@@ -11,6 +11,11 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from app.db.base import Base
 from app.core.config import DATABASE_URL
 
+# Import all models to ensure they're registered with Base.metadata
+from app.models.user import User  # noqa: F401
+from app.models.conversation import Conversation  # noqa: F401
+from app.models.message import Message  # noqa: F401
+
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
