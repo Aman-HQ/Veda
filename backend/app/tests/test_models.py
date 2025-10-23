@@ -1,6 +1,7 @@
 """
 Simple test script to verify ORM models and relationships work correctly.
 This is a temporary test file for B03 validation.
+ORM-level testing with the database.(This is an integration test./ database-aware)
 """
 import asyncio
 import uuid

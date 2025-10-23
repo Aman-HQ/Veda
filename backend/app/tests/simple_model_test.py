@@ -1,5 +1,7 @@
 """
 Simple model validation test - just check that models can be imported and instantiated.
+Quick static checks and schema validation.(mostly import-level and schema-level testing.)
+(Static / unit-level / lightweight , Does not touch the database at all.)
 """
 import sys
 import os
