@@ -837,7 +837,7 @@ For WebSocket flow, call ChatManager.handle_user_message and forward streaming v
 - Add services/rag/pipeline.py implementing LangChain-based RAGPipeline that handles:
   - document ingestion (loaders),
   - chunking (splitters),
-  - embedding (via Ollama embeddings),
+  - embedding using Pinecone’s built-in model (llama-text-embed-v2),
   - vector upsertion to Pinecone,
   - retrieval via LangChain retriever abstraction (return ranked context docs).
 - Implement `services/chat_manager.py` to:
@@ -854,7 +854,8 @@ For WebSocket flow, call ChatManager.handle_user_message and forward streaming v
 ```md
 **LangChain RAG Integration Notes**
 - Uses LangChain `PineconeVectorStore` for all embedding and retrieval logic.
-- Embeddings provider configurable via `EMBEDDING_MODEL` in config.
+- Embeddings provider configurable via `EMBEDDING_MODEL` in config. 
+  (i.e,embedding using Pinecone’s built-in model (llama-text-embed-v2))
 - To seed data: run `scripts/seed_vector_index.py` to load and index your local docs.
 - Retrieval automatically uses LangChain retriever abstraction.
 ```
@@ -943,7 +944,7 @@ from typing import List, Dict
 import os
 from langchain_pinecone import PineconeVectorStore
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.embeddings import OllamaEmbeddings
+from langchain_community.embeddings import PineconeEmbeddings
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
 from langchain.schema import Document
 import pinecone
@@ -951,7 +952,6 @@ from app.core.config import (
     PINECONE_API_KEY,
     PINECONE_ENV,
     PINECONE_INDEX,
-    EMBEDDING_MODEL,
     DOCUMENTS_PATH,
     CHUNK_SIZE,
     CHUNK_OVERLAP
@@ -964,7 +964,7 @@ class RAGPipeline:
     def __init__(self):
         pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENV)
         self.index = pinecone.Index(PINECONE_INDEX)
-        self.embeddings = OllamaEmbeddings(model=EMBEDDING_MODEL)
+        self.embeddings = PineconeEmbeddings(model="llama-text-embed-v2")
         self.vectorstore = PineconeVectorStore(index=self.index, embedding=self.embeddings)
 
     async def ingest_docs(self, path: str = DOCUMENTS_PATH):
@@ -1035,6 +1035,8 @@ class ChatManager:
 - All model choices/config are toggled from `core/config.py` (no hard-coded model names).
 - RAGPipeline uses LangChain components (loader, splitter, embedder, retriever) end-to-end.
 - Pinecone index contains embedded text chunks accessible via LangChain retriever.
+- RAGPipeline uses Pinecone’s built-in embedding model (`llama-text-embed-v2`) for consistent serverless performance.
+- No local embedding model setup required; embedding and retrieval occur natively in Pinecone.
 - Pipeline tested by seeding sample docs and confirming retrieved context appears in final prompt.
 - Dev-mode: pipeline returns canned response and saved to DB. 
 - Audio flow: simulate audio payload -> pipeline returns transcription-based answer.
