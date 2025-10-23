@@ -4,17 +4,21 @@ Loads environment variables and provides centralized config access.
 """
 import os
 from typing import Optional
+from dotenv import load_dotenv, find_dotenv
+
+# Load .env file automatically
+load_dotenv(find_dotenv())
 
 # -------------------------------
 # Database Configuration
 # -------------------------------
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql+asyncpg://postgres:postgres@localhost:5432/veda"
+    "postgresql+asyncpg://postgres:your_password@localhost:5432/veda"
 )
 
 POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
-POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "postgres")
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "your_password")
 POSTGRES_DB = os.getenv("POSTGRES_DB", "veda")
 POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
 POSTGRES_PORT = os.getenv("POSTGRES_PORT", "5432")
@@ -22,7 +26,7 @@ POSTGRES_PORT = os.getenv("POSTGRES_PORT", "5432")
 # -------------------------------
 # Authentication & Security
 # -------------------------------
-JWT_SECRET = os.getenv("JWT_SECRET", "97728b44f6b8903707e376ac088107b7474fa644089e191111a182ec04277496")
+JWT_SECRET = os.getenv("JWT_SECRET", "secret_key")
 JWT_ALGORITHM = os.getenv("JWT_ALG", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
