@@ -235,6 +235,7 @@ veda/
    │  ├─ services/
    │  │  ├─ llm_provider.py   # orchestrates which model to call and in what order
    │  │  ├─ chat_manager.py   # handles conversation flow and WebSocket streaming
+   │  │  ├─ audio_utils.py
    │  │  └─ rag/
    │  │     └─ pipeline.py   # LangChain RAG integration
    │  └─ tests/
@@ -471,6 +472,11 @@ OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY", "")
 PINECONE_ENV = os.getenv("PINECONE_ENV", "")
 PINECONE_INDEX = os.getenv("PINECONE_INDEX", "veda-index")
+
+AUDIO_PROVIDER= os.getenv("AUDIO_PROVIDER", "ollama or bhashini")
+BHASHINI_BASE_URL = os.getenv("BHASHINI_BASE_URL", "https://bhashini.gov.in/api/v1")
+BHASHINI_API_KEY = os.getenv("BHASHINI_API_KEY", "")
+
 ```
 - Security module `core/security.py`: password hash/verify (bcrypt), JWT create/verify, token payloads
 - db/session.py: create async engine and sessionmaker
@@ -829,11 +835,17 @@ For WebSocket flow, call ChatManager.handle_user_message and forward streaming v
 #### B07.5 — Multi-Model Orchestration (LLM Pipeline)
 
 **Purpose**
-- Orchestrate multiple specialized models (STT, summarizer, RAG, main answerer) using **Ollama** as the unified model host and **Pinecone** as the vector DB for RAG. All orchestration is done server-side via `llm_provider.py` called from `chat_manager.py`.
+- Orchestrate multiple specialized models (STT, summarizer, RAG, main answerer) using **Ollama** as the unified model host and **Pinecone** as the vector DB for RAG and optionally Bhashini API for STT, TTS, and translation tasks. 
+The provider can be switched via environment variable AUDIO_PROVIDER = ollama or bhashini.
+All orchestration logic remains in `llm_provider.py`— only the underlying call changes depending on the provider.
 
 **Actions**
 - Update `core/config.py` to include Ollama + Pinecone settings (OLLAMA_URL, OLLAMA_API_KEY optional, PINECONE_API_KEY, PINECONE_ENV, PINECONE_INDEX).
-- Keep `services/llm_provider.py` as the single orchestrator. Implement Ollama calls inside this file 
+- Keep `services/llm_provider.py` as the single orchestrator. Implement Ollama calls inside this file. 
+- Update `services/llm_provider.py` to include both Ollama and Bhashini pipelines:
+  - For STT/translation/TTS, call either Ollama local models (`whisper`, `mxbai-tts`) or Bhashini API endpoints based on config flag.
+  - Use `core/config.py` env vars: `AUDIO_PROVIDER`, `BHASHINI_API_KEY`, `BHASHINI_BASE_URL`.
+
 - Add services/rag/pipeline.py implementing LangChain-based RAGPipeline that handles:
   - document ingestion (loaders),
   - chunking (splitters),
@@ -851,14 +863,27 @@ For WebSocket flow, call ChatManager.handle_user_message and forward streaming v
 **Design notes**
 - **Ollama**: use Ollama's local HTTP API or Python client (via async HTTP client like `httpx`) to call different model names (e.g., `whisper`, `llama-3.2`, `medgemma-4b-it`) sequentially from inside `llm_provider.process_pipeline`.
 - **RAG**: `services/rag/pipeline.py` should expose `async def retrieve(query, top_k=5)` that queries Pinecone (via Pinecone client or LangChain retriever), returns context docs used by the final model prompt.
-```md
+
 **LangChain RAG Integration Notes**
 - Uses LangChain `PineconeVectorStore` for all embedding and retrieval logic.
 - Embeddings provider configurable via `EMBEDDING_MODEL` in config. 
   (i.e,embedding using Pinecone’s built-in model (llama-text-embed-v2))
 - To seed data: run `scripts/seed_vector_index.py` to load and index your local docs.
 - Retrieval automatically uses LangChain retriever abstraction.
-```
+
+- **Multilingual Support (Ollama ↔ Bhashini)**:
+  - If `AUDIO_PROVIDER=ollama`: use local Ollama models for STT (`whisper`), TTS, and translation (`llama3` or `mistral-instruct`).
+  - If `AUDIO_PROVIDER=bhashini`: call Bhashini’s REST API for:
+    - STT → `/asr/transcribe`
+    - TTS → `/tts/synthesize`
+    - Translation → `/translate/text`
+  - Implement helper module `app/services/audio_utils.py` to abstract both providers under one interface:
+    ```python
+    async def transcribe_audio(path: str) -> str
+    async def synthesize_speech(text: str) -> bytes
+    async def translate_text(text: str, src_lang: str, tgt_lang: str) -> str
+    ```
+  - This abstraction allows seamless switching between Ollama and Bhashini via config.
 
 - **Orchestration**: Typical pipeline: `audio -> (Whisper) -> text -> (Llama summarizer) -> summary -> (RAG retrieve) -> docs -> (MedGemma) -> final_answer`.
 - Use config flags to skip steps (e.g., `SKIP_SUMMARIZER=true`) or to select alternative models.
@@ -936,6 +961,51 @@ class LLMProvider:
         return final_text
 ```
 Notes: adjust chat endpoint payload per your Ollama API (streaming vs non-streaming). If you want token streaming, call Ollama streaming endpoints and forward chunks via WebSocket from chat_manager.
+
+**Example: (inside `app/services/audio_utils.py`)**
+```python
+import httpx
+import os
+from app.core.config import AUDIO_PROVIDER, BHASHINI_API_KEY, BHASHINI_BASE_URL, OLLAMA_URL
+
+async def transcribe_audio(path: str) -> str:
+    if AUDIO_PROVIDER == "bhashini":
+        url = f"{BHASHINI_BASE_URL}/asr/transcribe"
+        headers = {"Authorization": f"Bearer {BHASHINI_API_KEY}"}
+        files = {"file": open(path, "rb")}
+        async with httpx.AsyncClient() as client:
+            r = await client.post(url, files=files, headers=headers)
+            r.raise_for_status()
+            return r.json().get("text", "")
+    else:
+        # Ollama STT (Whisper)
+        payload = {"model": "whisper", "input": f"file://{path}"}
+        async with httpx.AsyncClient() as client:
+            r = await client.post(f"{OLLAMA_URL}/api/generate", json=payload)
+            r.raise_for_status()
+            return r.json().get("output", "")
+
+async def translate_text(text: str, src_lang: str, tgt_lang: str) -> str:
+    if AUDIO_PROVIDER == "bhashini":
+        async with httpx.AsyncClient() as client:
+            r = await client.post(
+                f"{BHASHINI_BASE_URL}/translate/text",
+                json={"text": text, "source": src_lang, "target": tgt_lang},
+                headers={"Authorization": f"Bearer {BHASHINI_API_KEY}"}
+            )
+            return r.json().get("translatedText", text)
+    else:
+        # Use Ollama LLM for translation
+        async with httpx.AsyncClient() as client:
+            r = await client.post(
+                f"{OLLAMA_URL}/api/chat",
+                json={"model": "mistral", "messages": [{"role": "user", "content": f"Translate to {tgt_lang}: {text}"}]}
+            )
+            return r.json().get("message", {}).get("content", text)
+```
+**Notes**
+- Both providers use async HTTP; the `audio_utils` module abstracts which API runs underneath.
+- If no internet or Bhashini API limit reached → fallback automatically to Ollama.
 
 **Example-(`app/services/rag/pipeline.py`)** 
 **RAG (LangChain + Pinecone sketch)**
@@ -1041,6 +1111,11 @@ class ChatManager:
 - Dev-mode: pipeline returns canned response and saved to DB. 
 - Audio flow: simulate audio payload -> pipeline returns transcription-based answer.
 - RAG flow: seed Pinecone test index and verify docs influence final prompt (can inspect logs).
+- `AUDIO_PROVIDER` flag correctly switches between Bhashini and Ollama STT/TTS/Translation pipelines.
+- Bhashini API tested with sample audio and multilingual text.
+- Ollama fallback verified when Bhashini API unavailable.
+- Transcriptions and translations consistent between both providers.
+
 
 
 #### B08 — Moderation & Safety
