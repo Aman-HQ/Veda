@@ -21,8 +21,9 @@ async def init_db(engine_override: AsyncEngine = None):
     
     async with target_engine.begin() as conn:
         # Import all models here to ensure they're registered
-        # This will be populated once models are created
-        # from ..models import user, conversation, message
+        from ..models.user import User  # noqa: F401
+        from ..models.conversation import Conversation  # noqa: F401
+        from ..models.message import Message  # noqa: F401
         
         # Create all tables
         await conn.run_sync(Base.metadata.create_all)

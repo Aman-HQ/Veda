@@ -3,15 +3,27 @@ Veda Chatbot - FastAPI Backend
 Main application entry point with health check endpoint.
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 from datetime import datetime
-from sqlalchemy import text
+from sqlalchemy import text, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import config
-from app.db.session import engine
+from app.db.session import engine, get_db
 from app.db.init_db import init_db
 from app.api.routers import auth_router
+from app.models.user import User
+from app.models.conversation import Conversation
+from app.models.message import Message
+import traceback
+import time
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Create FastAPI app instance
 app = FastAPI(
@@ -22,6 +34,27 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
+# Request timing and logging middleware
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    """Add request timing and logging middleware."""
+    start_time = time.time()
+    
+    # Log request
+    logger.info(f"Request: {request.method} {request.url}")
+    
+    response = await call_next(request)
+    
+    # Calculate process time
+    process_time = time.time() - start_time
+    response.headers["X-Process-Time"] = str(process_time)
+    
+    # Log response
+    logger.info(f"Response: {response.status_code} - {process_time:.4f}s")
+    
+    return response
+
+
 # CORS configuration using config module
 app.add_middleware(
     CORSMiddleware,
@@ -31,6 +64,53 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Global exception handlers
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Handle request validation errors."""
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": "Validation error",
+            "errors": exc.errors(),
+            "body": exc.body
+        }
+    )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Handle HTTP exceptions."""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "detail": exc.detail,
+            "status_code": exc.status_code
+        }
+    )
+
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """Handle general exceptions."""
+    if config.DEBUG:
+        # In debug mode, return detailed error information
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "Internal server error",
+                "error": str(exc),
+                "traceback": traceback.format_exc().split('\n') if config.DEBUG else None
+            }
+        )
+    else:
+        # In production, return generic error message
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error"}
+        )
+
+
 # Include API routers
 app.include_router(auth_router, prefix="/api/auth", tags=["authentication"])
 
@@ -38,30 +118,56 @@ app.include_router(auth_router, prefix="/api/auth", tags=["authentication"])
 @app.get("/health")
 async def health_check():
     """
-    Health check endpoint to verify the service is running.
-    Tests database connectivity as part of health check.
+    Enhanced health check endpoint to verify the service is running.
+    Tests database connectivity and provides detailed system information.
     
     Returns:
-        dict: Status information including timestamp and service status
+        dict: Status information including timestamp, service status, and database info
     """
     db_status = "unknown"
+    db_info = {}
     
     try:
-        # Test database connection
+        # Test database connection and get info
         async with engine.begin() as conn:
             await conn.execute(text("SELECT 1"))
+            
+            # Get database version and connection info
+            version_result = await conn.execute(text("SELECT version()"))
+            version = version_result.scalar()
+            
+            # Count tables
+            tables_result = await conn.execute(text(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public'"
+            ))
+            table_count = tables_result.scalar()
+            
         db_status = "connected"
+        db_info = {
+            "version": version.split(',')[0] if version else "unknown",
+            "host": config.POSTGRES_HOST,
+            "database": config.POSTGRES_DB,
+            "tables": table_count
+        }
     except Exception as e:
         db_status = f"error: {str(e)}"
+        db_info = {"error": str(e)}
     
     return JSONResponse(
-        status_code=200,
+        status_code=200 if db_status == "connected" else 503,
         content={
-            "status": "healthy",
+            "status": "healthy" if db_status == "connected" else "unhealthy",
             "service": "veda-backend",
             "timestamp": datetime.utcnow().isoformat(),
             "version": config.APP_VERSION,
-            "database": db_status
+            "database": {
+                "status": db_status,
+                **db_info
+            },
+            "environment": {
+                "debug": config.DEBUG,
+                "cors_origins": config.CORS_ORIGINS
+            }
         }
     )
 
@@ -77,8 +183,99 @@ async def root():
     return {
         "message": "Welcome to Veda Chatbot API",
         "docs": "/docs",
-        "health": "/health"
+        "health": "/health",
+        "version": config.APP_VERSION
     }
+
+
+@app.post("/chat")
+async def demo_chat(username: str, user_message: str, db: AsyncSession = Depends(get_db)):
+    """
+    Demo chat endpoint showing FastAPI-SQLAlchemy integration.
+    This is a simplified example as shown in the plan.
+    
+    Args:
+        username: User identifier (email)
+        user_message: Message content from user
+        db: Database session
+        
+    Returns:
+        dict: Response with generated message
+    """
+    try:
+        # Save user message (use transaction)
+        result = await db.execute(select(User).where(User.email == username))
+        user = result.scalars().first()
+
+        if not user:
+            # Create user if doesn't exist (for demo purposes)
+            user = User(email=username, name=username.split('@')[0] if '@' in username else username)
+            db.add(user)
+            await db.commit()
+            await db.refresh(user)
+
+        # Create or reuse a default conversation
+        result = await db.execute(
+            select(Conversation).where(
+                Conversation.user_id == user.id,
+                Conversation.title == "Demo Chat"
+            )
+        )
+        conv = result.scalars().first()
+        
+        if not conv:
+            conv = Conversation(user_id=user.id, title="Demo Chat")
+            db.add(conv)
+            await db.commit()
+            await db.refresh(conv)
+
+        # Add user message
+        user_msg = Message(
+            conversation_id=conv.id, 
+            sender="user", 
+            content=user_message,
+            message_metadata={"demo": True}
+        )
+        db.add(user_msg)
+        await db.commit()
+        await db.refresh(user_msg)
+
+        # Generate response (placeholder for LLM integration)
+        response_content = f"Thank you for your message: '{user_message}'. This is a demo response from Veda Healthcare Assistant."
+        
+        # Add healthcare disclaimer
+        disclaimer = "\n\n⚠️ This is for informational purposes only and should not replace professional medical advice."
+        response_content += disclaimer
+
+        # Save assistant response
+        bot_msg = Message(
+            conversation_id=conv.id, 
+            sender="assistant", 
+            content=response_content,
+            message_metadata={"demo": True, "disclaimer": True}
+        )
+        db.add(bot_msg)
+        
+        # Update conversation message count
+        conv.messages_count = conv.messages_count + 2  # user + assistant
+        
+        await db.commit()
+        await db.refresh(bot_msg)
+
+        return {
+            "response": response_content,
+            "conversation_id": str(conv.id),
+            "message_id": str(bot_msg.id),
+            "user": user.name,
+            "demo": True
+        }
+        
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Chat processing error: {str(e)}"
+        )
 
 
 # Startup event
