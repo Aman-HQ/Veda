@@ -1,0 +1,80 @@
+hey i was testing this test_b06_crud_endpoints.py  test file made by the cursor ai ---
+and this error pops ---
+.venv) PS D:\chatbot\Veda\backend> python test_b06_crud_endpoints.py                      
+Starting B06 CRUD Endpoints Tests...                                                       
+
+=== Testing Conversation CRUD ===
+
++ Authentication successful
+
+1. Testing conversation creation...
++ Conversation created successfully
+  Conversation ID: bbe6af62-e6bf-4b18-9449-b9aad3c04bdb
+  Title: Test Conversation for CRUD
+  Messages count: 0
+
+2. Testing conversation listing...
++ Conversation listing successful
+  Found 1 conversation(s)
+  First conversation: Test Conversation for CRUD
+
+3. Testing get conversation by ID...
++ Get conversation successful
+  Title: Test Conversation for CRUD
+  User ID: 803c4413-c151-4af9-ae86-ff59b942e773
+
+4. Testing conversation update...
++ Conversation update successful
+  New title: Updated Test Conversation
+
+[SUCCESS] All conversation CRUD tests passed!
+
+=== Testing Message CRUD ===
+
+1. Testing message creation...
++ Message created successfully
+  Message ID: 486fabe7-196b-4b5a-a1fd-af8f351271d1
+  Content: This is a test message for CRUD testing...
+  Sender: user
+
+2. Testing second message creation...
++ Second message created successfully
+
+3. Testing message listing...
++ Message listing successful
+  Found 2 message(s)
+  First message: This is a test message for CRU...
+
+4. Testing get message by ID...
++ Get message successful
+  Content: This is a test message for CRUD testing...
+  Status: sent
+
+5. Testing message update...
++ Message update successful
+  New content: This is an updated test message...
+  New status: edited
+
+6. Testing message status update...
++ Message status update successful
+  New status: delivered
+
+7. Testing get latest messages...
++ Get latest messages successful
+  Found 2 latest message(s)
+
+8. Testing message search...
++ Message search successful
+  Found 2 matching message(s)
+
+[SUCCESS] All message CRUD tests passed!
+
+=== Testing Conversation with Messages ===
+
+1. Testing get conversation with messages...
+- Get conversation with messages failed: 500
+
+💥 Conversation with messages tests failed!
+(.venv) PS D:\chatbot\Veda\backend> 
+
+?? how to fix it

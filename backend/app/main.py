@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import config
 from app.db.session import engine, get_db
 from app.db.init_db import init_db
-from app.api.routers import auth_router
+from app.api.routers import auth_router, conversations_router, messages_router
 from app.models.user import User
 from app.models.conversation import Conversation
 from app.models.message import Message
@@ -113,6 +113,8 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 # Include API routers
 app.include_router(auth_router, prefix="/api/auth", tags=["authentication"])
+app.include_router(conversations_router, prefix="/api/conversations", tags=["conversations"])
+app.include_router(messages_router, prefix="/api", tags=["messages"])
 
 
 @app.get("/health")
