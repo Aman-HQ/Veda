@@ -13,7 +13,7 @@ from ..crud.user import UserCRUD
 from ..models.user import User
 
 # HTTP Bearer token security scheme
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
@@ -38,6 +38,10 @@ async def get_current_user(
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    
+    # Check if credentials are provided
+    if credentials is None:
+        raise credentials_exception
     
     # Verify the token
     payload = verify_token(credentials.credentials, token_type="access")
@@ -105,7 +109,7 @@ async def get_current_admin_user(
     return current_user
 
 
-def get_optional_current_user(
+async def get_optional_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: AsyncSession = Depends(get_db)
 ) -> Optional[User]:
@@ -138,7 +142,9 @@ def get_optional_current_user(
         
         # Get user from database (this is async, but we're in a sync context)
         # For optional auth, we'll return None if there's any issue
-        return None  # This would need to be implemented differently for async
+        # return None  # This would need to be implemented differently for async
+        user = await UserCRUD.get_by_id(db, user_id)
+        return user
         
     except Exception:
         return None
