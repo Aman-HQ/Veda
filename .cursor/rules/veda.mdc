@@ -15,6 +15,10 @@ alwaysApply: true
 - Use **React.js** for frontend, **FastAPI** for backend, and **postgreSQL** for database.
 - Follow modular, clean, and well-commented code practices.
 
+## Command Rules
+- ALWAYS generate PowerShell-compatible commands
+- NEVER use Unix/Linux commands
+
 ## Development Flow
 - Execute Phases as instructed, first Phase F (F00–F09) exactly as defined in `plan.md`.
 - when Phase F is completed, similarly proceed with following : backend/** , docker/**, docker-compose.yml, .env.
