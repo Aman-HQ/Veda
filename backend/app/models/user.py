@@ -19,7 +19,7 @@ class User(Base):
     hashed_password = Column(String, nullable=True)  # Nullable for OAuth users
     name = Column(String(256), nullable=True)
     role = Column(String(50), default="user")
-    refresh_tokens = Column(JSON, default=list)  # Store refresh tokens metadata
+    refresh_tokens = Column(JSON, server_default='[]')  # Store refresh tokens metadata
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships

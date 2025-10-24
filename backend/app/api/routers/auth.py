@@ -1,7 +1,7 @@
 """
 Authentication endpoints for user registration, login, and token management.
 """
-from datetime import timedelta
+from datetime import timedelta, datetime, timezone
 from typing import Dict, Any
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, Request
@@ -117,7 +117,7 @@ async def login(
     refresh_tokens = user.refresh_tokens or []
     refresh_tokens.append({
         "token_id": refresh_token[:10],  # Store partial token for identification
-        "created_at": str(timedelta()),
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "user_agent": "web"  # Could extract from request headers
     })
     
