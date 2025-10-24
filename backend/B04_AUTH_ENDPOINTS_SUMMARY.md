@@ -250,7 +250,8 @@ Created comprehensive test script (`test_auth_endpoints.py`):
 ### Manual Testing
 ```bash
 # Start the server
-python backend/start_server.py
+cd backend
+python start_server.py
 
 # Run tests (in another terminal)
 cd backend
