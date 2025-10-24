@@ -11,6 +11,7 @@ from sqlalchemy import text
 from app.core import config
 from app.db.session import engine
 from app.db.init_db import init_db
+from app.api.routers import auth_router
 
 # Create FastAPI app instance
 app = FastAPI(
@@ -29,6 +30,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include API routers
+app.include_router(auth_router, prefix="/api/auth", tags=["authentication"])
 
 
 @app.get("/health")
