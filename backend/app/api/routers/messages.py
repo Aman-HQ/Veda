@@ -106,16 +106,13 @@ async def create_message(
             detail="Conversation not found"
         )
     
-    # Create the message
-    message = await MessageCRUD.create(
+    # Create the message with atomic count increment
+    message = await MessageCRUD.create_with_count_increment(
         db=db,
         message_create=message_create,
         conversation_id=conversation_id,
         sender="user"  # Default to user, can be overridden for assistant messages
     )
-    
-    # Increment conversation message count
-    await ConversationCRUD.increment_message_count(db, conversation_id, 1)
     
     return message
 
@@ -277,13 +274,8 @@ async def delete_message(
             detail="Message not found"
         )
     
-    conversation_id = message.conversation_id
-    
-    # Delete the message
-    await MessageCRUD.delete(db=db, message=message)
-    
-    # Decrement conversation message count
-    await ConversationCRUD.increment_message_count(db, conversation_id, -1)
+    # Delete the message with atomic count decrement
+    await MessageCRUD.delete_with_count_decrement(db=db, message=message)
 
 
 @router.delete("/{conversation_id}/messages", response_model=dict)

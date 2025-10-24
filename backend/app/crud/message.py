@@ -3,7 +3,7 @@ CRUD operations for Message model.
 """
 from typing import Optional, List, Dict, Any
 from uuid import UUID
-from sqlalchemy import select, delete, and_
+from sqlalchemy import select, delete, and_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -139,40 +139,43 @@ class MessageCRUD:
         return message
 
     @staticmethod
-    async def create_with_transaction(
-        db: AsyncSession,
+    async def create_with_count_increment(
+        db: AsyncSession, 
+        message_create: MessageCreate, 
         conversation_id: UUID,
-        sender: str,
-        content: str,
-        metadata: Optional[Dict[str, Any]] = None,
-        status: str = "sent"
+        sender: str = "user"
     ) -> Message:
         """
-        Create a message with explicit transaction handling.
-        This follows the pattern shown in the plan.
+        Create a new message and atomically increment conversation message count.
+        Both operations happen in a single transaction.
         
         Args:
             db: Database session
+            message_create: Message creation data
             conversation_id: Conversation UUID
             sender: Message sender ("user" or "assistant")
-            content: Message content
-            metadata: Optional message metadata
-            status: Message status
             
         Returns:
             Created message
         """
-        async with db.begin():
-            message = Message(
-                conversation_id=conversation_id,
-                sender=sender,
-                content=content,
-                status=status,
-                message_metadata=metadata or {}
-            )
-            db.add(message)
+        # Create the message
+        message = Message(
+            conversation_id=conversation_id,
+            sender=sender,
+            content=message_create.content,
+            status="sent",
+            message_metadata=message_create.message_metadata or {}
+        )
+        db.add(message)
         
-        # After context, transaction is committed
+        # Atomically increment conversation message count
+        await db.execute(
+            update(Conversation)
+            .where(Conversation.id == conversation_id)
+            .values(messages_count=Conversation.messages_count + 1)
+        )
+        
+        await db.commit()
         await db.refresh(message)
         return message
 
@@ -230,9 +233,41 @@ class MessageCRUD:
         return None
 
     @staticmethod
+    async def delete_with_count_decrement(
+        db: AsyncSession, 
+        message: Message
+    ) -> bool:
+        """
+        Delete a message and atomically decrement conversation message count.
+        Both operations happen in a single transaction.
+        
+        Args:
+            db: Database session
+            message: Message to delete
+            
+        Returns:
+            True if deleted successfully
+        """
+        conversation_id = message.conversation_id
+        
+        # Delete the message
+        await db.delete(message)
+        
+        # Atomically decrement conversation message count
+        await db.execute(
+            update(Conversation)
+            .where(Conversation.id == conversation_id)
+            .values(messages_count=Conversation.messages_count - 1)
+        )
+        
+        await db.commit()
+        return True
+
+    @staticmethod
     async def delete(db: AsyncSession, message: Message) -> bool:
         """
-        Delete a message.
+        Delete a message (without count management).
+        Use delete_with_count_decrement for automatic count management.
         
         Args:
             db: Database session

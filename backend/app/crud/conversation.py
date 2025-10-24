@@ -3,7 +3,7 @@ CRUD operations for Conversation model.
 """
 from typing import Optional, List
 from uuid import UUID
-from sqlalchemy import select, delete, func
+from sqlalchemy import select, delete, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -187,7 +187,7 @@ class ConversationCRUD:
         increment: int = 1
     ) -> bool:
         """
-        Increment the message count for a conversation.
+        Atomically increment the message count for a conversation.
         
         Args:
             db: Database session
@@ -198,15 +198,12 @@ class ConversationCRUD:
             True if updated successfully
         """
         result = await db.execute(
-            select(Conversation).where(Conversation.id == conversation_id)
+            update(Conversation)
+            .where(Conversation.id == conversation_id)
+            .values(messages_count=Conversation.messages_count + increment)
         )
-        conversation = result.scalars().first()
-        
-        if conversation:
-            conversation.messages_count += increment
-            await db.commit()
-            return True
-        return False
+        await db.commit()
+        return result.rowcount > 0
 
     @staticmethod
     async def get_message_count(db: AsyncSession, conversation_id: UUID) -> int:
@@ -228,7 +225,7 @@ class ConversationCRUD:
     @staticmethod
     async def update_message_count(db: AsyncSession, conversation_id: UUID) -> bool:
         """
-        Update the message count to match actual messages in the conversation.
+        Atomically update the message count to match actual messages in the conversation.
         
         Args:
             db: Database session
@@ -237,15 +234,13 @@ class ConversationCRUD:
         Returns:
             True if updated successfully
         """
-        actual_count = await ConversationCRUD.get_message_count(db, conversation_id)
+        # Get actual count using subquery
+        actual_count_subquery = select(func.count(Message.id)).where(Message.conversation_id == conversation_id)
         
         result = await db.execute(
-            select(Conversation).where(Conversation.id == conversation_id)
+            update(Conversation)
+            .where(Conversation.id == conversation_id)
+            .values(messages_count=actual_count_subquery.scalar_subquery())
         )
-        conversation = result.scalars().first()
-        
-        if conversation:
-            conversation.messages_count = actual_count
-            await db.commit()
-            return True
-        return False
+        await db.commit()
+        return result.rowcount > 0
