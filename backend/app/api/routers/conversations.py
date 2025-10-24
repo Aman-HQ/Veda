@@ -133,7 +133,7 @@ async def get_conversation_with_messages(
     Raises:
         HTTPException: If conversation not found or not owned by user
     """
-    conversation = await ConversationCRUD.get_with_messages(
+    conversation_data = await ConversationCRUD.get_with_messages(
         db=db,
         conversation_id=conversation_id,
         user_id=current_user.id,
@@ -141,13 +141,13 @@ async def get_conversation_with_messages(
         offset=offset
     )
     
-    if not conversation:
+    if not conversation_data:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Conversation not found"
         )
     
-    return conversation
+    return conversation_data
 
 
 @router.put("/{conversation_id}", response_model=Conversation)

@@ -43,7 +43,7 @@ class ConversationCRUD:
         user_id: UUID,
         limit: int = 50,
         offset: int = 0
-    ) -> Optional[Conversation]:
+    ) -> Optional[dict]:
         """
         Get conversation with messages, ensuring it belongs to the user.
         
@@ -55,7 +55,7 @@ class ConversationCRUD:
             offset: Number of messages to skip
             
         Returns:
-            Conversation with messages if found and owned by user
+            Dictionary with conversation and messages if found and owned by user
         """
         # First get the conversation
         conversation = await ConversationCRUD.get_by_id(db, conversation_id, user_id)
@@ -72,9 +72,15 @@ class ConversationCRUD:
         )
         messages = messages_result.scalars().all()
         
-        # Manually set the messages relationship
-        conversation.messages = messages
-        return conversation
+        # Return as dictionary for proper Pydantic serialization
+        return {
+            "id": conversation.id,
+            "user_id": conversation.user_id,
+            "title": conversation.title,
+            "messages_count": conversation.messages_count,
+            "created_at": conversation.created_at,
+            "messages": messages
+        }
 
     @staticmethod
     async def list_by_user(
