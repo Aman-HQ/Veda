@@ -1,0 +1,64 @@
+# Hypertension (High Blood Pressure) Information
+
+## Understanding Blood Pressure
+Blood pressure is the force of blood against artery walls. It's measured in millimeters of mercury (mmHg) and recorded as two numbers:
+- Systolic pressure (top number): pressure when heart beats
+- Diastolic pressure (bottom number): pressure when heart rests
+
+### Blood Pressure Categories
+- Normal: Less than 120/80 mmHg
+- Elevated: 120-129 systolic and less than 80 diastolic
+- Stage 1 Hypertension: 130-139/80-89 mmHg
+- Stage 2 Hypertension: 140/90 mmHg or higher
+- Hypertensive Crisis: Higher than 180/120 mmHg (seek immediate care)
+
+## Risk Factors
+### Controllable Factors
+- Diet high in sodium
+- Lack of physical activity
+- Obesity
+- Smoking
+- Excessive alcohol consumption
+- Stress
+- Sleep apnea
+
+### Uncontrollable Factors
+- Age (risk increases with age)
+- Family history
+- Race (higher risk in African Americans)
+- Gender (men at higher risk until age 65)
+
+## Symptoms
+Hypertension is often called the "silent killer" because it usually has no symptoms until complications develop. Some people may experience:
+- Headaches
+- Shortness of breath
+- Nosebleeds
+- Dizziness
+
+## Complications
+Untreated hypertension can lead to:
+- Heart attack
+- Stroke
+- Heart failure
+- Kidney disease
+- Vision problems
+- Peripheral artery disease
+
+## Management
+### Lifestyle Changes
+- Maintain healthy weight
+- Exercise regularly (at least 30 minutes most days)
+- Eat a healthy diet (DASH diet recommended)
+- Limit sodium intake
+- Limit alcohol consumption
+- Don't smoke
+- Manage stress
+- Get adequate sleep
+
+### Medications
+Various types of blood pressure medications may be prescribed:
+- ACE inhibitors
+- ARBs (Angiotensin receptor blockers)
+- Diuretics
+- Beta-blockers
+- Calcium channel blockers

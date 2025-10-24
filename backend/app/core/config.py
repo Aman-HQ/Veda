@@ -55,11 +55,34 @@ PINECONE_ENV = os.getenv("PINECONE_ENV", "")
 PINECONE_INDEX = os.getenv("PINECONE_INDEX", "veda-index")
 
 # -------------------------------
-# New Environment Variables
+# Audio Provider Configuration (Ollama vs Bhashini)
 # -------------------------------
-AUDIO_PROVIDER = os.getenv("AUDIO_PROVIDER", "ollama or bhashini")
+AUDIO_PROVIDER = os.getenv("AUDIO_PROVIDER", "ollama")  # "ollama" or "bhashini"
 BHASHINI_BASE_URL = os.getenv("BHASHINI_BASE_URL", "https://bhashini.gov.in/api/v1")
 BHASHINI_API_KEY = os.getenv("BHASHINI_API_KEY", "")
+
+# -------------------------------
+# RAG & Document Processing Configuration
+# -------------------------------
+DOCUMENTS_PATH = os.getenv("DOCUMENTS_PATH", "./data/documents")
+CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "1000"))
+CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "200"))
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "llama-text-embed-v2")
+
+# -------------------------------
+# Model Configuration
+# -------------------------------
+STT_MODEL = os.getenv("STT_MODEL", "whisper")
+SUMMARIZER_MODEL = os.getenv("SUMMARIZER_MODEL", "llama3.2")
+MAIN_MODEL = os.getenv("MAIN_MODEL", "medgemma-4b-it")
+TRANSLATION_MODEL = os.getenv("TRANSLATION_MODEL", "mistral")
+
+# -------------------------------
+# Pipeline Control Flags
+# -------------------------------
+SKIP_SUMMARIZER = os.getenv("SKIP_SUMMARIZER", "false").lower() == "true"
+SKIP_RAG = os.getenv("SKIP_RAG", "false").lower() == "true"
+USE_DEV_LLM = os.getenv("USE_DEV_LLM", "true").lower() == "true"
 
 # -------------------------------
 # LLM / AI Provider Configuration

@@ -1,0 +1,50 @@
+# Diabetes Overview
+
+## What is Diabetes?
+Diabetes is a group of metabolic disorders characterized by high blood sugar levels over a prolonged period.
+
+### Types of Diabetes
+
+#### Type 1 Diabetes
+- Usually diagnosed in children and young adults
+- Body doesn't produce insulin
+- Requires daily insulin injections
+- Autoimmune condition
+- About 5-10% of diabetes cases
+
+#### Type 2 Diabetes
+- Most common form (90-95% of cases)
+- Body doesn't use insulin properly
+- Often develops in adults over 45
+- Risk factors: obesity, family history, sedentary lifestyle
+- May be managed with diet, exercise, and medication
+
+#### Gestational Diabetes
+- Develops during pregnancy
+- Usually resolves after delivery
+- Increases risk of Type 2 diabetes later
+
+### Symptoms
+- Frequent urination
+- Excessive thirst
+- Unexplained weight loss
+- Fatigue
+- Blurred vision
+- Slow-healing wounds
+- Frequent infections
+
+### Complications
+Long-term complications can include:
+- Heart disease
+- Stroke
+- Kidney disease
+- Eye problems
+- Nerve damage
+- Poor wound healing
+
+### Management
+- Regular blood sugar monitoring
+- Healthy diet
+- Regular exercise
+- Medication as prescribed
+- Regular medical checkups

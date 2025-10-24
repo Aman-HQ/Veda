@@ -1,0 +1,35 @@
+# Fever Management Guide
+
+## Understanding Fever
+Fever is a temporary increase in body temperature, often due to illness. It's a sign that your body is fighting infection.
+
+### Normal Temperature Ranges
+- Normal: 97°F to 99°F (36.1°C to 37.2°C)
+- Low-grade fever: 99°F to 100.3°F (37.2°C to 37.9°C)
+- Fever: 100.4°F (38°C) or higher
+
+### Common Causes
+- Viral infections (flu, common cold)
+- Bacterial infections
+- Inflammatory conditions
+- Heat exhaustion
+- Certain medications
+- Vaccines (temporary)
+
+### Home Treatment
+- Rest and stay hydrated
+- Take fever reducers (acetaminophen, ibuprofen)
+- Use cool compresses
+- Wear light clothing
+- Take lukewarm baths
+
+### When to See a Doctor
+Adults should seek medical care if:
+- Fever is 103°F (39.4°C) or higher
+- Fever lasts more than 3 days
+- Severe symptoms accompany fever
+- Signs of dehydration
+- Difficulty breathing
+- Persistent vomiting
+
+Children and infants have different guidelines and should be evaluated more quickly.
