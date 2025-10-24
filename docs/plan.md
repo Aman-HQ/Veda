@@ -473,7 +473,7 @@ PINECONE_API_KEY = os.getenv("PINECONE_API_KEY", "")
 PINECONE_ENV = os.getenv("PINECONE_ENV", "")
 PINECONE_INDEX = os.getenv("PINECONE_INDEX", "veda-index")
 
-AUDIO_PROVIDER= os.getenv("AUDIO_PROVIDER", "ollama or bhashini")
+AUDIO_PROVIDER= os.getenv("AUDIO_PROVIDER", "ollama") # Options: "ollama" or "bhashini"
 BHASHINI_BASE_URL = os.getenv("BHASHINI_BASE_URL", "https://bhashini.gov.in/api/v1")
 BHASHINI_API_KEY = os.getenv("BHASHINI_API_KEY", "")
 

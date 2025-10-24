@@ -68,6 +68,13 @@ async def test_fix():
                 headers=headers
             )
             
+            # 5. Cleanup (do this before checking result)
+            try:
+                await client.delete(f"http://localhost:8000/api/conversations/{conv_id}", headers=headers)
+                print("✅ Cleanup completed")
+            except Exception:
+                pass  # Best effort cleanup
+            
             if with_messages_resp.status_code == 200:
                 data = with_messages_resp.json()
                 print("✅ Conversation with messages endpoint works!")
@@ -76,9 +83,6 @@ async def test_fix():
                 if data.get("messages"):
                     print(f"   First message: {data['messages'][0].get('content', '')[:50]}...")
                 
-                # 5. Cleanup
-                await client.delete(f"http://localhost:8000/api/conversations/{conv_id}", headers=headers)
-                print("✅ Cleanup completed")
                 return True
             else:
                 print(f"❌ Conversation with messages failed: {with_messages_resp.status_code}")

@@ -101,7 +101,7 @@ async def general_exception_handler(request: Request, exc: Exception):
             content={
                 "detail": "Internal server error",
                 "error": str(exc),
-                "traceback": traceback.format_exc().split('\n') if config.DEBUG else None
+                "traceback": traceback.format_exc().split('\n')
             }
         )
     else:
@@ -110,7 +110,6 @@ async def general_exception_handler(request: Request, exc: Exception):
             status_code=500,
             content={"detail": "Internal server error"}
         )
-
 
 # Include API routers
 app.include_router(auth_router, prefix="/api/auth", tags=["authentication"])
@@ -207,64 +206,60 @@ async def demo_chat(username: str, user_message: str, db: AsyncSession = Depends
         dict: Response with generated message
     """
     try:
-        # Save user message (use transaction)
-        result = await db.execute(select(User).where(User.email == username))
-        user = result.scalars().first()
+        async with db.begin():
+            result = await db.execute(select(User).where(User.email == username))
+            user = result.scalars().first()
 
-        if not user:
-            # Create user if doesn't exist (for demo purposes)
-            user = User(email=username, name=username.split('@')[0] if '@' in username else username)
-            db.add(user)
-            await db.commit()
-            await db.refresh(user)
+            if not user:
+                # Create user if doesn't exist (for demo purposes)
+                user = User(email=username, name=username.split('@')[0] if '@' in username else username)
+                db.add(user)
+                await db.refresh(user)
 
-        # Create or reuse a default conversation
-        result = await db.execute(
-            select(Conversation).where(
-                Conversation.user_id == user.id,
-                Conversation.title == "Demo Chat"
+            # Create or reuse a default conversation
+            result = await db.execute(
+                select(Conversation).where(
+                    Conversation.user_id == user.id,
+                    Conversation.title == "Demo Chat"
+                )
             )
-        )
-        conv = result.scalars().first()
-        
-        if not conv:
-            conv = Conversation(user_id=user.id, title="Demo Chat")
-            db.add(conv)
-            await db.commit()
-            await db.refresh(conv)
+            conv = result.scalars().first()
+            
+            if not conv:
+                conv = Conversation(user_id=user.id, title="Demo Chat")
+                db.add(conv)
+                await db.refresh(conv)
 
-        # Add user message
-        user_msg = Message(
-            conversation_id=conv.id, 
-            sender="user", 
-            content=user_message,
-            message_metadata={"demo": True}
-        )
-        db.add(user_msg)
-        await db.commit()
-        await db.refresh(user_msg)
+            # Add user message
+            user_msg = Message(
+                conversation_id=conv.id, 
+                sender="user", 
+                content=user_message,
+                message_metadata={"demo": True}
+            )
+            db.add(user_msg)
+            await db.refresh(user_msg)
 
-        # Generate response (placeholder for LLM integration)
-        response_content = f"Thank you for your message: '{user_message}'. This is a demo response from Veda Healthcare Assistant."
-        
-        # Add healthcare disclaimer
-        disclaimer = "\n\n⚠️ This is for informational purposes only and should not replace professional medical advice."
-        response_content += disclaimer
+            # Generate response (placeholder for LLM integration)
+            response_content = f"Thank you for your message: '{user_message}'. This is a demo response from Veda Healthcare Assistant."
+            
+            # Add healthcare disclaimer
+            disclaimer = "\n\n⚠️ This is for informational purposes only and should not replace professional medical advice."
+            response_content += disclaimer
 
-        # Save assistant response
-        bot_msg = Message(
-            conversation_id=conv.id, 
-            sender="assistant", 
-            content=response_content,
-            message_metadata={"demo": True, "disclaimer": True}
-        )
-        db.add(bot_msg)
-        
-        # Update conversation message count
-        conv.messages_count = conv.messages_count + 2  # user + assistant
-        
-        await db.commit()
-        await db.refresh(bot_msg)
+            # Save assistant response
+            bot_msg = Message(
+                conversation_id=conv.id, 
+                sender="assistant", 
+                content=response_content,
+                message_metadata={"demo": True, "disclaimer": True}
+            )
+            db.add(bot_msg)
+            
+            # Update conversation message count
+            conv.messages_count = conv.messages_count + 2  # user + assistant
+            await db.refresh(bot_msg)
+        # Transaction commits here automatically
 
         return {
             "response": response_content,
@@ -275,7 +270,6 @@ async def demo_chat(username: str, user_message: str, db: AsyncSession = Depends
         }
         
     except Exception as e:
-        await db.rollback()
         raise HTTPException(
             status_code=500,
             detail=f"Chat processing error: {str(e)}"

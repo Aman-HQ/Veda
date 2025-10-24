@@ -3,7 +3,8 @@ Authentication endpoints for user registration, login, and token management.
 """
 from datetime import timedelta, datetime, timezone
 from typing import Dict, Any
-from uuid import UUID
+from uuid import UUID, uuid4
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +35,7 @@ from ...schemas.auth import (
 from ...api.deps import get_current_user
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/register", response_model=User, status_code=status.HTTP_201_CREATED)
@@ -76,6 +78,7 @@ async def register(
 @router.post("/login", response_model=Token)
 async def login(
     login_request: LoginRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -83,6 +86,7 @@ async def login(
     
     Args:
         login_request: Login credentials
+        request: HTTP request for extracting user agent
         db: Database session
         
     Returns:
@@ -116,9 +120,9 @@ async def login(
     # Store refresh token metadata (optional - for token management)
     refresh_tokens = user.refresh_tokens or []
     refresh_tokens.append({
-        "token_id": refresh_token[:10],  # Store partial token for identification
+        "token_id": str(uuid4()),  # Unique, non-correlatable identifier
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "user_agent": "web"  # Could extract from request headers
+        "user_agent": request.headers.get("user-agent", "unknown") # Extract real user agent
     })
     
     # Keep only last 5 refresh tokens
@@ -245,6 +249,7 @@ async def google_login():
 @router.post("/google/callback", response_model=Token)
 async def google_callback(
     oauth_request: GoogleOAuthRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -252,6 +257,7 @@ async def google_callback(
     
     Args:
         oauth_request: OAuth2 authorization code
+        request: HTTP request for extracting user agent
         db: Database session
         
     Returns:
@@ -315,6 +321,20 @@ async def google_callback(
             expires_delta=refresh_token_expires
         )
         
+        # Store refresh token metadata with secure UUID identifier
+        refresh_tokens = user.refresh_tokens or []
+        refresh_tokens.append({
+            "token_id": str(uuid4()),  # Unique identifier for this session
+            "created_at": datetime.now(timezone.utc).isoformat(),   # When token was issued
+            "user_agent": request.headers.get("user-agent", "unknown")  # Extract real user agent
+        })
+        
+        # Keep only last 5 refresh tokens
+        if len(refresh_tokens) > 5:
+            refresh_tokens = refresh_tokens[-5:]
+        
+        await UserCRUD.update_refresh_tokens(db, user, refresh_tokens)
+
         return Token(
             access_token=access_token,
             refresh_token=refresh_token,
@@ -322,12 +342,14 @@ async def google_callback(
         )
         
     except httpx.HTTPError as e:
+        logger.error(f"Google OAuth2 HTTP error: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Google OAuth2 error: {str(e)}"
+            detail="Google OAuth2 authentication failed"
         )
     except Exception as e:
+        logger.error(f"OAuth2 processing error: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"OAuth2 processing error: {str(e)}"
+            detail="OAuth2 authentication failed"
         )

@@ -8,6 +8,7 @@ import os
 import asyncio
 import httpx
 import tempfile
+import time
 from typing import Optional, List, Dict, AsyncGenerator, Union, Any
 from pathlib import Path
 
@@ -558,7 +559,7 @@ Provide a helpful, accurate response to this medical query. Always emphasize the
         
         health = {
             "status": "healthy",
-            "timestamp": asyncio.get_event_loop().time(),
+            "timestamp": time.time(),
             "components": {}
         }
         

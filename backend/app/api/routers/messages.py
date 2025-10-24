@@ -1,6 +1,7 @@
 """
 API endpoints for message management.
 """
+import logging
 from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -19,6 +20,7 @@ from ...models.user import User
 from ...services.chat_manager import ChatManager
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/{conversation_id}/messages", response_model=List[Message])
@@ -421,21 +423,21 @@ async def create_chat_message(
             import base64
             try:
                 audio_bytes = base64.b64decode(audio)
-            except Exception:
+            except (ValueError, base64.binascii.Error) as e:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Invalid audio data format"
-                )
+                ) from e
         
         if image:
             import base64
             try:
                 image_bytes = base64.b64decode(image)
-            except Exception:
+            except (ValueError, base64.binascii.Error) as e:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Invalid image data format"
-                )
+                ) from e
         
         # Create chat manager and process message
         chat_manager = ChatManager(db)
@@ -461,10 +463,11 @@ async def create_chat_message(
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception(f"Chat processing failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Chat processing failed: {str(e)}"
-        )
+            detail="Chat processing failed. Please try again."
+        ) from e
 
 
 @router.get("/search", response_model=List[Message])

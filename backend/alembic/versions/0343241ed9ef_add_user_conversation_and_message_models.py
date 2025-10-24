@@ -23,6 +23,8 @@ def upgrade() -> None:
     op.create_table('conversations',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('user_id', sa.UUID(), nullable=False),
+    sa.Column('title', sa.String(length=512), nullable=True),
+    sa.Column('messages_count', sa.Integer(), server_default='0', nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
@@ -31,7 +33,9 @@ def upgrade() -> None:
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('conversation_id', sa.UUID(), nullable=False),
     sa.Column('sender', sa.String(length=50), nullable=False),
-    sa.Column('content', sa.String(), nullable=False),
+    sa.Column('content', sa.TEXT(), nullable=False),
+    sa.Column('status', sa.String(length=50), server_default='sent', nullable=True),
+    sa.Column('message_metadata', sa.JSON(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.ForeignKeyConstraint(['conversation_id'], ['conversations.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')

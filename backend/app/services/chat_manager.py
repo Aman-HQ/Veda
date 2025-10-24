@@ -7,7 +7,7 @@ import uuid
 import asyncio
 from typing import Optional, Dict, Any, AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from datetime import datetime
 
 from .llm_provider import LLMProvider
@@ -318,19 +318,20 @@ class ChatManager:
         try:
             # Get message count
             result = await self.db.execute(
-                select(Message).where(Message.conversation_id == uuid.UUID(conversation_id))
+                select(func.count(Message.id)).where(
+                    Message.conversation_id == uuid.UUID(conversation_id)
+                )
             )
-            messages = result.scalars().all()
-            message_count = len(messages)
+            message_count = result.scalar() or 0
             
             # Update conversation
             conversation = await ConversationCRUD.get_by_id(self.db, conversation_id)
             if conversation:
-                conversation.messages_count = str(message_count)
+                conversation.messages_count = message_count
                 await self.db.commit()
                 
         except Exception as e:
-            logger.error(f"Error updating conversation stats: {e}")
+            logger.exception("Error updating conversation stats")
 
 
 class StreamCache:

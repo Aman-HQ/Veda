@@ -50,7 +50,7 @@ def run_migrations_offline() -> None:
 
     """
     # Use sync database URL for offline mode
-    sync_database_url = DATABASE_URL.replace('+asyncpg', '')
+    sync_database_url = DATABASE_URL.replace('+asyncpg', '+psycopg2')
     
     context.configure(
         url=sync_database_url,
@@ -71,7 +71,7 @@ def run_migrations_online() -> None:
 
     """
     # Use sync engine for autogenerate by replacing +asyncpg with +psycopg2
-    sync_database_url = DATABASE_URL.replace('+asyncpg', '')
+    sync_database_url = DATABASE_URL.replace('+asyncpg', '+psycopg2')
     
     connectable = create_engine(
         sync_database_url,

@@ -157,6 +157,7 @@ async def _bhashini_transcribe(audio_data: Union[bytes, str], language: str) -> 
     url = f"{BHASHINI_BASE_URL}/asr/transcribe"
     headers = {"Authorization": f"Bearer {BHASHINI_API_KEY}"}
     
+    temp_file_path = None
     # Handle both file paths and raw bytes
     if isinstance(audio_data, str):
         # File path
@@ -166,6 +167,7 @@ async def _bhashini_transcribe(audio_data: Union[bytes, str], language: str) -> 
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
             temp_file.write(audio_data)
             temp_file.flush()
+            temp_file_path = temp_file.name
             files = {"file": open(temp_file.name, "rb")}
     
     try:
@@ -183,6 +185,9 @@ async def _bhashini_transcribe(audio_data: Union[bytes, str], language: str) -> 
         # Close file handles
         for file_obj in files.values():
             file_obj.close()
+        # Cleanup temporary file if created
+        if temp_file_path:
+            cleanup_temp_file(temp_file_path)
 
 
 async def _bhashini_synthesize(text: str, language: str) -> bytes:

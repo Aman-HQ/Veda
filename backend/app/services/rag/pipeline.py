@@ -8,6 +8,7 @@ import asyncio
 from typing import List, Dict, Optional, Any
 from pathlib import Path
 import logging
+import time
 
 # LangChain imports
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -421,7 +422,7 @@ class RAGPipeline:
         health = {
             "status": "healthy",
             "mode": "development" if self.use_dev_mode else "production",
-            "timestamp": asyncio.get_event_loop().time()
+            "timestamp": time.time()
         }
         
         try:
