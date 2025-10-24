@@ -15,15 +15,17 @@ from app.db.session import engine, get_db
 from app.db.init_db import init_db
 from app.api.routers import auth_router, conversations_router, messages_router
 from app.api.routers.stream import router as stream_router, start_cleanup_task
+from app.api.routers.admin import router as admin_router
 from app.models.user import User
 from app.models.conversation import Conversation
 from app.models.message import Message
+from app.core.logging_config import setup_logging, log_system_event
 import traceback
 import time
 import logging
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Initialize structured logging
+setup_logging()
 logger = logging.getLogger(__name__)
 
 # Create FastAPI app instance
@@ -116,6 +118,7 @@ app.include_router(auth_router, prefix="/api/auth", tags=["authentication"])
 app.include_router(conversations_router, prefix="/api/conversations", tags=["conversations"])
 app.include_router(messages_router, prefix="/api", tags=["messages"])
 app.include_router(stream_router, tags=["websocket"])
+app.include_router(admin_router, prefix="/api/admin", tags=["admin"])
 
 
 @app.get("/health")
@@ -304,6 +307,9 @@ async def startup_event():
         # Start background cleanup task for WebSocket stream cache
         print("🧹 Starting background cleanup task...")
         start_cleanup_task()
+        
+        # Log system startup
+        log_system_event("application_startup", "main", {"version": "1.0.0", "debug": config.DEBUG})
     except Exception as e:
         print(f"❌ Database connection failed: {e}")
         print("⚠️  Application will start but database operations will fail")

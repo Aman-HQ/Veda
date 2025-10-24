@@ -19,6 +19,8 @@ from app.core.config import (
 )
 from .rag.pipeline import RAGPipeline
 from .audio_utils import transcribe_audio, translate_text
+from .moderation import moderation_service, ModerationResult
+from ..core.logging_config import log_moderation_event, get_component_logger
 import logging
 
 logger = logging.getLogger(__name__)
@@ -136,12 +138,14 @@ class LLMProvider:
         image: Optional[bytes] = None,
         text: Optional[str] = None, 
         opts: Optional[Dict] = None,
-        language: str = "en"
+        language: str = "en",
+        user_id: Optional[str] = None,
+        conversation_id: Optional[str] = None
     ) -> str:
         """
-        Process input through the full AI pipeline.
+        Process input through the full AI pipeline with content moderation.
         
-        Pipeline: Audio/Image → Text → Summarizer → RAG → Main Model → Response
+        Pipeline: Input → Moderation → Audio/Image → Text → Summarizer → RAG → Main Model → Response
         
         Args:
             audio: Audio data for transcription
@@ -149,6 +153,8 @@ class LLMProvider:
             text: Text input
             opts: Additional options (skip_summarizer, skip_rag, etc.)
             language: Language code for audio processing
+            user_id: User ID for logging and context
+            conversation_id: Conversation ID for logging and context
             
         Returns:
             Final response text with disclaimer
@@ -156,7 +162,7 @@ class LLMProvider:
         opts = opts or {}
         
         if self.use_dev_mode:
-            return await self._dev_mode_response(text, audio, image, language)
+            return await self._dev_mode_response(text, audio, image, language, user_id, conversation_id)
         
         try:
             # Step 1: Process audio input (STT)
@@ -174,21 +180,66 @@ class LLMProvider:
             if not text:
                 raise ValueError("No text provided for processing")
             
-            # Step 3: Text summarization (optional)
+            # Step 3: Content moderation
+            moderation_result = await self._moderate_content(text, user_id, conversation_id)
+            if moderation_result.action == "block":
+                return moderation_service.get_safe_response_for_blocked_content(moderation_result.severity)
+            
+            # Step 4: Text summarization (optional)
             summary = await self._summarize_text(text, opts)
             
-            # Step 4: RAG retrieval
+            # Step 5: RAG retrieval
             context_docs = await self._retrieve_context(summary, opts)
             
-            # Step 5: Generate final response
+            # Step 6: Generate final response
             final_response = await self._generate_final_response(summary, context_docs, opts)
             
-            # Step 6: Add healthcare disclaimer
+            # Step 7: Moderate output response
+            output_moderation = await self._moderate_content(final_response, user_id, conversation_id, is_output=True)
+            if output_moderation.action == "block":
+                final_response = "I apologize, but I cannot provide a response to that query. Please rephrase your question or ask about a different health topic."
+            
+            # Step 8: Add emergency resources if needed
+            if moderation_result.severity == "medical_emergency":
+                final_response = moderation_service.add_emergency_resources_to_response(final_response)
+            
+            # Step 9: Add healthcare disclaimer
             return final_response + self.disclaimer
             
         except Exception as e:
             logger.error(f"Pipeline processing failed: {e}")
             return await self._handle_pipeline_error(e)
+    
+    async def _moderate_content(
+        self, 
+        content: str, 
+        user_id: Optional[str] = None, 
+        conversation_id: Optional[str] = None,
+        is_output: bool = False
+    ) -> ModerationResult:
+        """Moderate content and log results."""
+        
+        context = {
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+            "is_output": is_output,
+            "component": "llm_pipeline"
+        }
+        
+        result = moderation_service.moderate_content(content, context)
+        
+        # Log moderation events
+        if result.action in ["block", "flag"]:
+            log_moderation_event(
+                action=result.action,
+                severity=result.severity,
+                content_preview=content[:100],
+                user_id=user_id,
+                conversation_id=conversation_id,
+                matched_keywords=result.matched_keywords
+            )
+        
+        return result
     
     async def _process_audio_input(self, audio: bytes, language: str) -> str:
         """Process audio input through STT."""
@@ -364,7 +415,9 @@ Provide a helpful, accurate response to this medical query. Always emphasize the
         image: Optional[bytes] = None,
         text: Optional[str] = None,
         opts: Optional[Dict] = None,
-        language: str = "en"
+        language: str = "en",
+        user_id: Optional[str] = None,
+        conversation_id: Optional[str] = None
     ) -> AsyncGenerator[str, None]:
         """
         Process input through the AI pipeline with streaming response.
@@ -382,7 +435,7 @@ Provide a helpful, accurate response to this medical query. Always emphasize the
         opts = opts or {}
         
         if self.use_dev_mode:
-            async for chunk in self._dev_mode_stream(text, audio, image, language):
+            async for chunk in self._dev_mode_stream(text, audio, image, language, user_id, conversation_id):
                 yield chunk
             return
 
@@ -400,17 +453,42 @@ Provide a helpful, accurate response to this medical query. Always emphasize the
             if not text:
                 raise ValueError("No text provided for processing")
             
-            # Step 3: Text summarization (optional)
+            # Step 3: Content moderation
+            moderation_result = await self._moderate_content(text, user_id, conversation_id)
+            if moderation_result.action == "block":
+                yield moderation_service.get_safe_response_for_blocked_content(moderation_result.severity)
+                return
+            
+            # Step 4: Text summarization (optional)
             summary = await self._summarize_text(text, opts)
             
-            # Step 4: RAG retrieval
+            # Step 5: RAG retrieval
             context_docs = await self._retrieve_context(summary, opts)
             
-            # Step 5: Stream final response
+            # Step 6: Stream final response
+            response_chunks = []
             async for chunk in self._stream_final_response(summary, context_docs, opts):
+                response_chunks.append(chunk)
                 yield chunk
+            
+            # Step 7: Moderate output response
+            full_response = "".join(response_chunks)
+            output_moderation = await self._moderate_content(full_response, user_id, conversation_id, is_output=True)
+            if output_moderation.action == "block":
+                yield "\n\n[Response moderated for safety]"
+            
+            # Step 8: Add emergency resources if needed
+            if moderation_result.severity == "medical_emergency":
+                emergency_resources = (
+                    "\n\n🆘 **Emergency Resources:**\n"
+                    "• Emergency: 911\n"
+                    "• Suicide Prevention Lifeline: 988\n"
+                    "• Crisis Text Line: Text HOME to 741741\n"
+                    "• Poison Control: 1-800-222-1222"
+                )
+                yield emergency_resources
                 
-            # Step 6: Add disclaimer at the end
+            # Step 9: Add disclaimer at the end
             yield self.disclaimer
             
         except Exception as e:
@@ -455,8 +533,8 @@ Provide a helpful, accurate response to this medical query. Always emphasize the
             logger.error(f"Streaming final response failed: {e}")
             yield "I apologize, but I'm experiencing technical difficulties. Please try again later or consult with a healthcare professional."
 
-    async def _dev_mode_response(self, text: Optional[str], audio: Optional[bytes], image: Optional[bytes], language: str = "en") -> str:
-        """Generate canned response for development mode."""
+    async def _dev_mode_response(self, text: Optional[str], audio: Optional[bytes], image: Optional[bytes], language: str = "en", user_id: Optional[str] = None, conversation_id: Optional[str] = None) -> str:
+        """Generate canned response for development mode with moderation."""
         
         # Simulate processing delay
         await asyncio.sleep(0.5)
@@ -474,8 +552,21 @@ Provide a helpful, accurate response to this medical query. Always emphasize the
             # Simulate image analysis
             processed_text = self._combine_text_inputs(processed_text, "[Image Analysis]: Medical-related image detected")
         
+        # Apply moderation in dev mode too
+        if processed_text:
+            moderation_result = await self._moderate_content(processed_text, user_id, conversation_id)
+            if moderation_result.action == "block":
+                return moderation_service.get_safe_response_for_blocked_content(moderation_result.severity)
+        
         # Generate contextual response based on content
         response = await self._dev_mode_final_response(processed_text, [])
+        
+        # Add emergency resources if needed
+        if processed_text:
+            moderation_result = await self._moderate_content(processed_text, user_id, conversation_id)
+            if moderation_result.severity == "medical_emergency":
+                response = moderation_service.add_emergency_resources_to_response(response)
+        
         return response + self.disclaimer
     
     async def _dev_mode_final_response(self, query: str, context_docs: List[str]) -> str:
@@ -505,10 +596,10 @@ Provide a helpful, accurate response to this medical query. Always emphasize the
         
         return base_response
 
-    async def _dev_mode_stream(self, text: Optional[str], audio: Optional[bytes], image: Optional[bytes], language: str = "en") -> AsyncGenerator[str, None]:
+    async def _dev_mode_stream(self, text: Optional[str], audio: Optional[bytes], image: Optional[bytes], language: str = "en", user_id: Optional[str] = None, conversation_id: Optional[str] = None) -> AsyncGenerator[str, None]:
         """Generate streaming canned response for development mode."""
         
-        full_response = await self._dev_mode_response(text, audio, image, language)
+        full_response = await self._dev_mode_response(text, audio, image, language, user_id, conversation_id)
         
         # Split response into chunks and stream with delay
         words = full_response.split()

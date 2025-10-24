@@ -141,14 +141,17 @@ class ChatManager:
                     assistant_message_id=assistant_message_id,
                     text=text,
                     audio=audio,
-                    image=image
+                    image=image,
+                    user_id=user_id
                 )
             else:
                 # Non-streaming response
                 response_content = await self.provider.process_pipeline(
                     text=text,
                     audio=audio,
-                    image=image
+                    image=image,
+                    user_id=user_id,
+                    conversation_id=conversation_id
                 )
                 
                 # Persist assistant message
@@ -182,7 +185,8 @@ class ChatManager:
         assistant_message_id: str,
         text: Optional[str] = None,
         audio: Optional[bytes] = None,
-        image: Optional[bytes] = None
+        image: Optional[bytes] = None,
+        user_id: Optional[str] = None
     ) -> str:
         """Handle streaming response generation and persistence."""
         
@@ -193,7 +197,9 @@ class ChatManager:
             async for chunk in self.provider.process_pipeline_stream(
                 text=text,
                 audio=audio,
-                image=image
+                image=image,
+                user_id=user_id,
+                conversation_id=conversation_id
             ):
                 await ws_streamer.send_chunk(assistant_message_id, chunk)
                 full_response += chunk
