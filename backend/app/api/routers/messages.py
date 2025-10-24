@@ -16,6 +16,7 @@ from ...schemas.chat import (
 )
 from ...api.deps import get_current_user
 from ...models.user import User
+from ...services.chat_manager import ChatManager
 
 router = APIRouter()
 
@@ -369,6 +370,101 @@ async def get_latest_messages(
     )
     
     return messages
+
+
+@router.post("/{conversation_id}/messages/chat", response_model=dict, status_code=status.HTTP_201_CREATED)
+async def create_chat_message(
+    conversation_id: UUID,
+    payload: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Create a chat message and get AI response (non-streaming).
+    
+    This endpoint handles the full chat pipeline including:
+    - Text, audio, and image input processing
+    - AI response generation via LLM provider
+    - Message persistence with healthcare disclaimer
+    
+    Args:
+        conversation_id: Conversation UUID
+        payload: Message payload with text, audio, or image data
+        current_user: Current authenticated user
+        db: Database session
+        
+    Returns:
+        Chat response with user and assistant message details
+        
+    Raises:
+        HTTPException: If conversation not found or processing fails
+    """
+    try:
+        # Extract payload data
+        text = payload.get("text")
+        audio = payload.get("audio")  # base64 encoded audio data
+        image = payload.get("image")  # base64 encoded image data
+        client_message_id = payload.get("client_message_id")
+        
+        # Validate input
+        if not any([text, audio, image]):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="At least one of text, audio, or image must be provided"
+            )
+        
+        # Convert base64 data to bytes if provided
+        audio_bytes = None
+        image_bytes = None
+        
+        if audio:
+            import base64
+            try:
+                audio_bytes = base64.b64decode(audio)
+            except Exception:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid audio data format"
+                )
+        
+        if image:
+            import base64
+            try:
+                image_bytes = base64.b64decode(image)
+            except Exception:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid image data format"
+                )
+        
+        # Create chat manager and process message
+        chat_manager = ChatManager(db)
+        
+        result = await chat_manager.handle_user_message(
+            conversation_id=str(conversation_id),
+            user_id=str(current_user.id),
+            text=text,
+            audio=audio_bytes,
+            image=image_bytes,
+            client_message_id=client_message_id
+        )
+        
+        return {
+            "success": True,
+            "user_message_id": result["user_message_id"],
+            "assistant_message_id": result["assistant_message_id"],
+            "response": result["response"],
+            "conversation_id": result["conversation_id"],
+            "message": "Chat message processed successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Chat processing failed: {str(e)}"
+        )
 
 
 @router.get("/search", response_model=List[Message])

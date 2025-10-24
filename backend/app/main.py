@@ -14,6 +14,7 @@ from app.core import config
 from app.db.session import engine, get_db
 from app.db.init_db import init_db
 from app.api.routers import auth_router, conversations_router, messages_router
+from app.api.routers.stream import router as stream_router, start_cleanup_task
 from app.models.user import User
 from app.models.conversation import Conversation
 from app.models.message import Message
@@ -115,6 +116,7 @@ async def general_exception_handler(request: Request, exc: Exception):
 app.include_router(auth_router, prefix="/api/auth", tags=["authentication"])
 app.include_router(conversations_router, prefix="/api/conversations", tags=["conversations"])
 app.include_router(messages_router, prefix="/api", tags=["messages"])
+app.include_router(stream_router, tags=["websocket"])
 
 
 @app.get("/health")
@@ -304,6 +306,10 @@ async def startup_event():
         if config.DEBUG:
             print("🔧 Initializing database tables...")
             await init_db()
+        
+        # Start background cleanup task for WebSocket stream cache
+        print("🧹 Starting background cleanup task...")
+        start_cleanup_task()
     except Exception as e:
         print(f"❌ Database connection failed: {e}")
         print("⚠️  Application will start but database operations will fail")

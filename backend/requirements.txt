@@ -40,5 +40,8 @@ pinecone-client==3.0.0
 langchain==0.1.0
 langchain-community==0.0.10
 
+# WebSocket support
+websockets==12.0
+
 # Monitoring (optional)
 prometheus-fastapi-instrumentator==6.1.0
