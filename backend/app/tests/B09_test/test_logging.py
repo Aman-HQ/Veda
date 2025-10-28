@@ -64,7 +64,7 @@ def test_moderation_logger():
     
     # If log file exists, verify it has content
     if MODERATION_LOG.exists():
-        with open(MODERATION_LOG, 'r') as f:
+        with open(MODERATION_LOG, 'r', encoding='utf-8') as f:
             lines = f.readlines()
             assert len(lines) > 0
 
@@ -84,7 +84,7 @@ def test_admin_logger():
     
     # If log file exists, verify it has content
     if ADMIN_LOG.exists():
-        with open(ADMIN_LOG, 'r') as f:
+        with open(ADMIN_LOG, 'r', encoding='utf-8') as f:
             lines = f.readlines()
             assert len(lines) > 0
 
@@ -169,7 +169,7 @@ def test_structured_logging_format():
     )
     
     if MODERATION_LOG.exists() and MODERATION_LOG.stat().st_size > 0:
-        with open(MODERATION_LOG, 'r') as f:
+        with open(MODERATION_LOG, 'r', encoding='utf-8') as f:
             lines = f.readlines()
             if lines:
                 # Last line should be our test log
@@ -203,7 +203,7 @@ def test_multiple_log_entries():
     
     # Verify logs are written
     if APP_LOG.exists():
-        with open(APP_LOG, 'r') as f:
+        with open(APP_LOG, 'r', encoding='utf-8') as f:
             lines = f.readlines()
             # Should have at least our 5 test entries
             assert len(lines) >= 5
@@ -261,7 +261,7 @@ async def test_concurrent_logging():
     
     # Verify all logs were written
     if APP_LOG.exists():
-        with open(APP_LOG, 'r') as f:
+        with open(APP_LOG, 'r', encoding='utf-8') as f:
             lines = f.readlines()
             # Should have at least our 10 concurrent entries
             assert len(lines) >= 10

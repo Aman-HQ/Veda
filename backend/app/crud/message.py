@@ -6,7 +6,6 @@ from uuid import UUID
 from sqlalchemy import select, delete, and_, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-import db
 from ..models.message import Message
 from ..models.conversation import Conversation
 from ..schemas.chat import MessageCreate, MessageUpdate
