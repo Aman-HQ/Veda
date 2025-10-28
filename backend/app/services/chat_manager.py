@@ -107,8 +107,8 @@ class ChatManager:
         """
         try:
             # Validate conversation exists and user has access
-            conversation = await ConversationCRUD.get_by_id(self.db, conversation_id)
-            if not conversation or str(conversation.user_id) != str(user_id):
+            conversation = await ConversationCRUD.get_by_id(self.db, conversation_id, user_id)
+            if not conversation:
                 error_msg = "Conversation not found or access denied"
                 if ws_streamer:
                     await ws_streamer.send_error(error_msg)
@@ -162,7 +162,7 @@ class ChatManager:
                 assistant_message_id = str(assistant_message.id)
             
             # Update conversation metadata
-            await self._update_conversation_stats(conversation_id)
+            await self._update_conversation_stats(conversation_id, user_id)
             
             return {
                 "user_message_id": str(user_message.id),
@@ -318,7 +318,7 @@ class ChatManager:
         )
         return result.scalars().first()
     
-    async def _update_conversation_stats(self, conversation_id: str):
+    async def _update_conversation_stats(self, conversation_id: str, user_id: str):
         """Update conversation statistics."""
         
         try:
@@ -331,7 +331,7 @@ class ChatManager:
             message_count = result.scalar() or 0
             
             # Update conversation
-            conversation = await ConversationCRUD.get_by_id(self.db, conversation_id)
+            conversation = await ConversationCRUD.get_by_id(self.db, conversation_id, user_id)
             if conversation:
                 conversation.messages_count = message_count
                 await self.db.commit()

@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 
+@pytest.mark.pipeline
 @pytest.mark.asyncio
 class TestLLMProvider:
     """Test LLM provider with mocked responses."""
@@ -71,6 +72,7 @@ class TestLLMProvider:
         assert len(full_response) > 0
 
 
+@pytest.mark.pipeline
 @pytest.mark.asyncio
 class TestChatManager:
     """Test chat manager functionality."""
@@ -90,8 +92,12 @@ class TestChatManager:
                 text="Hello, I have a question"
             )
             
-            assert isinstance(result, str)
-            assert len(result) > 0
+            # Result should be a dict with message IDs and response
+            assert isinstance(result, dict)
+            assert "response" in result
+            assert "user_message_id" in result
+            assert "assistant_message_id" in result
+            assert len(result["response"]) > 0
     
     async def test_handle_user_message_persists_to_db(
         self, db_session, test_conversation, test_user, mock_llm_provider
@@ -127,10 +133,11 @@ class TestChatManager:
         """Test handling message with WebSocket streaming."""
         from app.services.chat_manager import ChatManager
         
-        # Mock WebSocket streamer
-        streamer = MagicMock()
+        # Mock WebSocket streamer with AsyncMock
+        streamer = AsyncMock()
         streamer.send_chunk = AsyncMock()
         streamer.send_done = AsyncMock()
+        streamer.send_error = AsyncMock()
         
         with patch('app.services.chat_manager.LLMProvider', return_value=mock_llm_provider):
             manager = ChatManager(db_session)
@@ -171,7 +178,7 @@ class TestRAGPipeline:
         except ImportError:
             pytest.skip("RAG pipeline not fully implemented")
     
-    async def test_rag_ingest_docs(self, tmp_upload_dir):
+    async def test_rag_ingest_documents(self, tmp_upload_dir):
         """Test document ingestion."""
         from app.services.rag.pipeline import RAGPipeline
         
@@ -182,9 +189,10 @@ class TestRAGPipeline:
             
             pipeline = RAGPipeline()
             
-            # Mock ingest
-            with patch.object(pipeline, 'ingest_docs', new_callable=AsyncMock) as mock_ingest:
-                await pipeline.ingest_docs(str(tmp_upload_dir))
+            # Mock ingest_documents (actual method name)
+            with patch.object(pipeline, 'ingest_documents', new_callable=AsyncMock) as mock_ingest:
+                mock_ingest.return_value = 1  # Return count of ingested docs
+                await pipeline.ingest_documents(str(tmp_upload_dir))
                 
                 assert mock_ingest.called
         except ImportError:

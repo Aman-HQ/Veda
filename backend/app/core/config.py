@@ -107,3 +107,10 @@ APP_NAME = "Veda Healthcare Chatbot"
 APP_VERSION = "1.0.0"
 DEBUG = os.getenv("DEBUG", "true").lower() == "true"
 
+# -------------------------------
+# File Upload Configuration
+# -------------------------------
+UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./uploads")
+MAX_IMAGE_SIZE_MB = int(os.getenv("MAX_IMAGE_SIZE_MB", "10"))
+MAX_AUDIO_SIZE_MB = int(os.getenv("MAX_AUDIO_SIZE_MB", "50"))
+

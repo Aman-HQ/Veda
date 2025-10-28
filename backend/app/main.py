@@ -16,6 +16,7 @@ from app.db.init_db import init_db
 from app.api.routers import auth_router, conversations_router, messages_router
 from app.api.routers.stream import router as stream_router, start_cleanup_task
 from app.api.routers.admin import router as admin_router
+from app.api.routers.uploads import router as uploads_router
 from app.models.user import User
 from app.models.conversation import Conversation
 from app.models.message import Message
@@ -126,6 +127,7 @@ app.include_router(conversations_router, prefix="/api/conversations", tags=["con
 app.include_router(messages_router, prefix="/api", tags=["messages"])
 app.include_router(stream_router, tags=["websocket"])
 app.include_router(admin_router, prefix="/api/admin", tags=["admin"])
+app.include_router(uploads_router, prefix="/api", tags=["uploads"])
 
 # Conditionally instrument Prometheus metrics
 if config.ENABLE_METRICS:

@@ -273,7 +273,8 @@ def mock_llm_provider(monkeypatch):
     """Mock LLM provider for testing without actual model calls."""
     
     class MockLLMProvider:
-        async def process_pipeline(self, audio=None, text=None, image=None, opts=None):
+        async def process_pipeline(self, audio=None, text=None, image=None, opts=None, 
+                                  user_id=None, conversation_id=None):
             """Return canned response."""
             if text:
                 return f"Mock response to: {text}"
@@ -289,5 +290,13 @@ def mock_llm_provider(monkeypatch):
             chunk_size = 10
             for i in range(0, len(response), chunk_size):
                 await callback(response[i:i+chunk_size])
+        
+        async def process_pipeline_stream(self, audio=None, text=None, image=None,
+                                         user_id=None, conversation_id=None):
+            """Stream mock response chunks."""
+            response = f"Mock streaming: {text or 'input'}"
+            chunk_size = 10
+            for i in range(0, len(response), chunk_size):
+                yield response[i:i+chunk_size]
     
     return MockLLMProvider()
