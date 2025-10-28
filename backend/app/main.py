@@ -24,9 +24,16 @@ import traceback
 import time
 import logging
 
+# Import Prometheus instrumentation (conditionally based on config)
+if config.ENABLE_METRICS:
+    from prometheus_fastapi_instrumentator import Instrumentator
+
 # Initialize structured logging
 setup_logging()
 logger = logging.getLogger(__name__)
+
+# Track application start time for uptime metrics
+app_start_time = datetime.utcnow()
 
 # Create FastAPI app instance
 app = FastAPI(
@@ -119,6 +126,26 @@ app.include_router(conversations_router, prefix="/api/conversations", tags=["con
 app.include_router(messages_router, prefix="/api", tags=["messages"])
 app.include_router(stream_router, tags=["websocket"])
 app.include_router(admin_router, prefix="/api/admin", tags=["admin"])
+
+# Conditionally instrument Prometheus metrics
+if config.ENABLE_METRICS:
+    instrumentator = Instrumentator(
+        should_group_status_codes=True,
+        should_ignore_untemplated=True,
+        should_respect_env_var=False,  # Use our config instead of environment variable
+        should_instrument_requests_inprogress=True,
+        excluded_handlers=["/metrics"],
+        inprogress_name="http_requests_inprogress",
+        inprogress_labels=True,
+    )
+    
+    # Instrument the app
+    instrumentator.instrument(app)
+    
+    # Expose metrics endpoint
+    instrumentator.expose(app, endpoint="/metrics", include_in_schema=True, tags=["monitoring"])
+    
+    logger.info("✓ Prometheus metrics enabled at /metrics")
 
 
 @app.get("/health")

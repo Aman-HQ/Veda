@@ -1621,7 +1621,7 @@ docker-compose up --build
 - [ ] Image upload + voice input
 - [ ] Moderation + emergency modal
 - [ ] Admin stats + logs
-- [ ] Dockerized dev environment with frontend/backend/MongoDB
+- [ ] Dockerized dev environment with frontend/backend/postgresSQL
 - [ ] Tests (FE+BE) + CI
 - [ ] README + .env.example + API contracts
 

@@ -297,7 +297,8 @@ Seek medical attention for:
     logger.info(f"Created {len(sample_docs)} sample documents in {docs_path}")
 
 
-async def seed_vector_index(docs_path: str = None, create_samples: bool = False):    """
+async def seed_vector_index(docs_path: str = None, create_samples: bool = False):
+    """
     Seed the vector index with healthcare documents.
     
     Args:

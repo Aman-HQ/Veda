@@ -8,6 +8,8 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, desc
+import psutil
+import os
 
 from app.api.deps import get_current_user, get_db
 from app.models.user import User
@@ -20,6 +22,9 @@ from app.core.logging_config import log_admin_action, get_admin_logger
 
 router = APIRouter()
 admin_logger = get_admin_logger()
+
+# Track application start time for uptime calculation
+app_start_time = datetime.utcnow()
 
 
 def require_admin_role(current_user: User = Depends(get_current_user)):
@@ -156,6 +161,123 @@ async def get_admin_stats(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to generate statistics"
+        )
+
+
+@router.get("/metrics", response_model=Dict[str, Any])
+async def get_admin_metrics(
+    admin_user: User = Depends(require_admin_role),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get real-time system metrics for monitoring.
+    Returns uptime, active conversations, messages today, flagged messages, and system resources.
+    
+    Args:
+        admin_user: Current admin user
+        db: Database session
+        
+    Returns:
+        Dictionary containing real-time metrics
+    """
+    
+    try:
+        # Calculate uptime
+        current_time = datetime.utcnow()
+        uptime_delta = current_time - app_start_time
+        uptime_seconds = int(uptime_delta.total_seconds())
+        uptime_formatted = str(uptime_delta).split('.')[0]  # Remove microseconds
+        
+        # Get today's date range
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        # Active conversations (conversations with messages in last 24 hours)
+        yesterday = datetime.utcnow() - timedelta(days=1)
+        active_conversations_result = await db.execute(
+            select(func.count(func.distinct(Message.conversation_id)))
+            .where(Message.created_at >= yesterday)
+        )
+        active_conversations = active_conversations_result.scalar()
+        
+        # Messages today
+        messages_today_result = await db.execute(
+            select(func.count(Message.id))
+            .where(Message.created_at >= today_start)
+        )
+        messages_today = messages_today_result.scalar()
+        
+        # Flagged messages (total)
+        flagged_messages_result = await db.execute(
+            select(func.count(Message.id))
+            .where(Message.status == "flagged")
+        )
+        flagged_messages = flagged_messages_result.scalar()
+        
+        # Recent flagged messages (last 24 hours)
+        recent_flagged_result = await db.execute(
+            select(func.count(Message.id))
+            .where(and_(
+                Message.status == "flagged",
+                Message.created_at >= yesterday
+            ))
+        )
+        recent_flagged = recent_flagged_result.scalar()
+        
+        # System resource metrics
+        process = psutil.Process(os.getpid())
+        memory_info = process.memory_info()
+        cpu_percent = process.cpu_percent(interval=0.1)
+        
+        # System-wide metrics
+        system_memory = psutil.virtual_memory()
+        system_cpu = psutil.cpu_percent(interval=0.1)
+        
+        metrics = {
+            "uptime": {
+                "seconds": uptime_seconds,
+                "formatted": uptime_formatted,
+                "started_at": app_start_time.isoformat()
+            },
+            "conversations": {
+                "active_last_24h": active_conversations
+            },
+            "messages": {
+                "today": messages_today,
+                "flagged_total": flagged_messages,
+                "flagged_last_24h": recent_flagged
+            },
+            "system_resources": {
+                "process": {
+                    "memory_mb": round(memory_info.rss / 1024 / 1024, 2),
+                    "memory_percent": round(process.memory_percent(), 2),
+                    "cpu_percent": round(cpu_percent, 2),
+                    "threads": process.num_threads()
+                },
+                "system": {
+                    "memory_total_gb": round(system_memory.total / 1024 / 1024 / 1024, 2),
+                    "memory_available_gb": round(system_memory.available / 1024 / 1024 / 1024, 2),
+                    "memory_percent": system_memory.percent,
+                    "cpu_percent": system_cpu,
+                    "cpu_count": psutil.cpu_count()
+                }
+            },
+            "timestamp": current_time.isoformat(),
+            "collected_by": str(admin_user.id)
+        }
+        
+        log_admin_action(
+            action="view_metrics",
+            admin_user_id=str(admin_user.id),
+            details={"metrics_collected": True}
+        )
+        
+        return metrics
+        
+    except Exception as e:
+        admin_logger.error(f"Failed to generate metrics: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate metrics"
         )
 
 
