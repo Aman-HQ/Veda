@@ -253,7 +253,6 @@ class TestMessageEndpoints:
         
         assert response.status_code == 401
     
-    @pytest.mark.skip(reason="Moderation not yet implemented in message creation endpoint")
     async def test_create_message_blocked_by_moderation(
         self, client: AsyncClient, auth_headers, test_conversation
     ):
@@ -266,8 +265,16 @@ class TestMessageEndpoints:
             }
         )
         
-        # Should return error or be blocked
-        assert response.status_code in [400, 403]
+        # Should be blocked with 400 status
+        assert response.status_code == 400
+        data = response.json()
+        
+        # Verify error details
+        assert "detail" in data
+        detail = data["detail"]
+        assert detail["error"] == "Content blocked by moderation"
+        assert detail["severity"] == "high"
+        assert len(detail["matched_keywords"]) > 0
 
 
 @pytest.mark.asyncio

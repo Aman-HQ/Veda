@@ -18,6 +18,7 @@ from ...schemas.chat import (
 from ...api.deps import get_current_user
 from ...models.user import User
 from ...services.chat_manager import ChatManager
+from ...services.moderation import moderate_content
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -107,6 +108,41 @@ async def create_message(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Conversation not found"
+        )
+    
+    # Moderate content before creating message
+    moderation_result = moderate_content(
+        message_create.content,
+        context={
+            "user_id": str(current_user.id),
+            "conversation_id": str(conversation_id),
+            "endpoint": "create_message"
+        }
+    )
+    
+    # Block high-severity content
+    if not moderation_result.is_safe and moderation_result.action == "block":
+        logger.warning(
+            f"Message blocked by moderation: user={current_user.id}, "
+            f"severity={moderation_result.severity}, "
+            f"keywords={moderation_result.matched_keywords}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "Content blocked by moderation",
+                "severity": moderation_result.severity,
+                "reason": moderation_result.message,
+                "matched_keywords": moderation_result.matched_keywords
+            }
+        )
+    
+    # Log flagged content (medium severity) but allow it
+    if moderation_result.action == "flag":
+        logger.info(
+            f"Message flagged by moderation: user={current_user.id}, "
+            f"severity={moderation_result.severity}, "
+            f"keywords={moderation_result.matched_keywords}"
         )
     
     # Create the message with atomic count increment
