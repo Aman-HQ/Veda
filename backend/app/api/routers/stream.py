@@ -28,31 +28,36 @@ class ConnectionManager:
     
     def __init__(self):
         self.active_connections: Dict[str, WebSocket] = {}
+        self._lock = asyncio.Lock()
         
     async def connect(self, websocket: WebSocket, conversation_id: str, user_id: str):
         """Accept WebSocket connection and store it."""
         await websocket.accept()
         connection_key = f"{user_id}:{conversation_id}"
-        self.active_connections[connection_key] = websocket
+        async with self._lock:
+            self.active_connections[connection_key] = websocket
         logger.info(f"WebSocket connected: {connection_key}")
         
-    def disconnect(self, conversation_id: str, user_id: str):
+    async def disconnect(self, conversation_id: str, user_id: str):
         """Remove WebSocket connection."""
         connection_key = f"{user_id}:{conversation_id}"
-        if connection_key in self.active_connections:
-            del self.active_connections[connection_key]
-            logger.info(f"WebSocket disconnected: {connection_key}")
+        async with self._lock:
+            if connection_key in self.active_connections:
+                del self.active_connections[connection_key]
+                logger.info(f"WebSocket disconnected: {connection_key}")
             
     async def send_personal_message(self, message: dict, conversation_id: str, user_id: str):
         """Send message to specific user's WebSocket."""
         connection_key = f"{user_id}:{conversation_id}"
-        if connection_key in self.active_connections:
-            websocket = self.active_connections[connection_key]
+        async with self._lock:
+            websocket = self.active_connections.get(connection_key)
+        
+        if websocket:
             try:
                 await websocket.send_json(message)
             except Exception as e:
-                logger.error(f"Error sending message to {connection_key}: {e}")
-                self.disconnect(conversation_id, user_id)
+                logger.exception(f"Error sending message to {connection_key}: {e}")
+                await self.disconnect(conversation_id, user_id)
 
 
 # Global connection manager
@@ -88,7 +93,7 @@ async def get_current_user_from_token(token: str, db: AsyncSession) -> Optional[
         return user
         
     except Exception as e:
-        logger.error(f"WebSocket auth error: {e}")
+        logger.exception(f"WebSocket auth error: {e}")
         return None
 
 
@@ -146,7 +151,7 @@ async def websocket_endpoint(
                 await ws_streamer.send_error("Invalid JSON format")
                 continue
             except Exception as e:
-                logger.error(f"WebSocket receive error: {e}")
+                logger.exception(f"WebSocket receive error: {e}")
                 break
             
             # Handle different message types
@@ -180,9 +185,9 @@ async def websocket_endpoint(
     except WebSocketDisconnect:
         logger.info(f"WebSocket disconnected normally: {user.id}:{conversation_id}")
     except Exception as e:
-        logger.error(f"WebSocket error: {e}")
+        logger.exception(f"WebSocket error: {e}")
     finally:
-        manager.disconnect(conversation_id, str(user.id))
+        await manager.disconnect(conversation_id, str(user.id))
 
 
 async def handle_user_message(
@@ -221,7 +226,7 @@ async def handle_user_message(
         logger.info(f"Message processed successfully: {result.get('user_message_id')}")
         
     except Exception as e:
-        logger.error(f"Error handling user message: {e}")
+        logger.exception(f"Error handling user message: {e}")
         await ws_streamer.send_error(f"Message processing failed: {str(e)}")
 
 
@@ -255,7 +260,7 @@ async def handle_resume_request(
         logger.info(f"WebSocket resumed: {conversation_id}")
         
     except Exception as e:
-        logger.error(f"Error handling resume request: {e}")
+        logger.exception(f"Error handling resume request: {e}")
         await ws_streamer.send_error("Resume failed")
 
 
@@ -267,7 +272,7 @@ async def cleanup_expired_cache():
             stream_cache.cleanup_expired()
             await asyncio.sleep(60)  # Run every minute
         except Exception as e:
-            logger.error(f"Cache cleanup error: {e}")
+            logger.exception(f"Cache cleanup error: {e}")
             await asyncio.sleep(60)
 
 

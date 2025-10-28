@@ -341,15 +341,15 @@ async def google_callback(
             token_type="bearer"
         )
         
-    except httpx.HTTPError as e:
-        logger.error(f"Google OAuth2 HTTP error: {e}")
+    except httpx.HTTPStatusError as e:
+        logger.exception("Google OAuth2 HTTP error")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Google OAuth2 authentication failed"
-        )
-    except Exception as e:
-        logger.error(f"OAuth2 processing error: {e}")
+        ) from e
+    except (httpx.RequestError, KeyError, ValueError) as e:
+        logger.exception("OAuth2 processing error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="OAuth2 authentication failed"
-        )
+        ) from e

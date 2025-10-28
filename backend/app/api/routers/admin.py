@@ -157,11 +157,11 @@ async def get_admin_stats(
         return stats
         
     except Exception as e:
-        admin_logger.error(f"Failed to generate admin stats: {e}")
+        admin_logger.exception("Failed to generate admin stats")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to generate statistics"
-        )
+        ) from e
 
 
 @router.get("/metrics", response_model=Dict[str, Any])
@@ -274,11 +274,11 @@ async def get_admin_metrics(
         return metrics
         
     except Exception as e:
-        admin_logger.error(f"Failed to generate metrics: {e}")
+        admin_logger.exception("Failed to generate metrics")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to generate metrics"
-        )
+        ) from e
 
 
 @router.get("/moderation/stats", response_model=Dict[str, Any])
@@ -317,11 +317,11 @@ async def get_moderation_stats(
         return detailed_stats
         
     except Exception as e:
-        admin_logger.error(f"Failed to get moderation stats: {e}")
+        admin_logger.exception("Failed to get moderation stats")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve moderation statistics"
-        )
+        ) from e
 
 
 @router.post("/moderation/reload-rules", response_model=Dict[str, Any])
@@ -364,7 +364,7 @@ async def reload_moderation_rules(
             )
             
     except Exception as e:
-        admin_logger.error(f"Failed to reload moderation rules: {e}")
+        admin_logger.exception("Failed to reload moderation rules")
         log_admin_action(
             action="reload_moderation_rules",
             admin_user_id=str(admin_user.id),
@@ -373,7 +373,7 @@ async def reload_moderation_rules(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to reload moderation rules: {str(e)}"
-        )
+        ) from e
 
 
 @router.get("/users", response_model=List[Dict[str, Any]])
@@ -432,11 +432,11 @@ async def get_users_list(
         return user_list
         
     except Exception as e:
-        admin_logger.error(f"Failed to get users list: {e}")
+        admin_logger.exception("Failed to get users list")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve users list"
-        )
+        ) from e
 
 
 @router.get("/conversations/flagged", response_model=List[Dict[str, Any]])
@@ -507,11 +507,11 @@ async def get_flagged_conversations(
         return result
         
     except Exception as e:
-        admin_logger.error(f"Failed to get flagged conversations: {e}")
+        admin_logger.exception("Failed to get flagged conversations")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve flagged conversations"
-        )
+        ) from e
 
 
 @router.get("/system/health", response_model=Dict[str, Any])
@@ -564,11 +564,11 @@ async def get_system_health(
         return system_health
         
     except Exception as e:
-        admin_logger.error(f"Failed to get system health: {e}")
+        admin_logger.exception("Failed to get system health")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve system health"
-        )
+        ) from e
 
 
 @router.post("/users/{user_id}/role", response_model=Dict[str, Any])
@@ -633,8 +633,11 @@ async def update_user_role(
     except HTTPException:
         raise
     except Exception as e:
-        admin_logger.error(f"Failed to update user role: {e}")
+        admin_logger.exception("Failed to update user role")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update user role"
-        )
+        ) from e
+
+
+

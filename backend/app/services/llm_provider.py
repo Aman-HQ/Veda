@@ -84,10 +84,10 @@ class OllamaClient:
             async with httpx.AsyncClient(timeout=120) as client:
                 async with client.stream("POST", url, json=payload, headers=self.headers) as response:
                     response.raise_for_status()
+                    import json
                     async for line in response.aiter_lines():
                         if line.strip():
                             try:
-                                import json
                                 data = json.loads(line)
                                 if "message" in data and "content" in data["message"]:
                                     content = data["message"]["content"]

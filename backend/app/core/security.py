@@ -52,12 +52,6 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
-from datetime import datetime, timedelta, timezone
-from typing import Optional, Dict, Any
-from passlib.context import CryptContext
-from jose import JWTError, jwt
-from . import config
-
 def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
     """
     Create a JWT access token.
@@ -94,7 +88,7 @@ def create_refresh_token(data: Dict[str, Any], expires_delta: Optional[timedelta
     to_encode = data.copy()
     
     if expires_delta:
-         expire = datetime.now(timezone.utc) + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
         expire = datetime.now(timezone.utc) + timedelta(days=config.REFRESH_TOKEN_EXPIRE_DAYS)
 

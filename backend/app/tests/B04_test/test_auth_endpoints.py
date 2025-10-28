@@ -45,8 +45,13 @@ async def test_auth_endpoints():
                 user_data = response.json()
                 print(f"  User ID: {user_data.get('id')}")
                 print(f"  Email: {user_data.get('email')}")
-            elif response.status_code == 400 and "already registered" in response.text:
-                print("+ User already exists (expected for repeated tests)")
+            elif response.status_code == 400:
+                error_data = response.json()
+                if "detail" in error_data and "already registered" in error_data["detail"].lower():
+                    print("+ User already exists (expected for repeated tests)")
+                else:
+                    print(f"- User registration failed with unexpected error: {response.text}")
+                    return False
             else:
                 print(f"- User registration failed: {response.status_code}")
                 print(f"  Error: {response.text}")

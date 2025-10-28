@@ -48,7 +48,7 @@ class UserCRUD:
             return user
         except IntegrityError:
             await db.rollback()
-            raise ValueError(f"User with email {user_create.email} already exists")
+            raise ValueError("User registration failed due to duplicate email") from None
 
     @staticmethod
     async def create_oauth_user(db: AsyncSession, email: str, name: str) -> User:
@@ -67,13 +67,15 @@ class UserCRUD:
             return user
         except IntegrityError:
             await db.rollback()
-            raise ValueError(f"User with email {email} already exists")
-
+            raise ValueError("User registration failed due to duplicate email") from None
     @staticmethod
     async def update(db: AsyncSession, user: User, user_update: UserUpdate) -> User:
         """Update user information."""
         update_data = user_update.model_dump(exclude_unset=True)
-        
+
+        if "password" in update_data:
+            update_data["hashed_password"] = get_password_hash(update_data.pop("password"))  
+
         for field, value in update_data.items():
             setattr(user, field, value)
         

@@ -9,6 +9,7 @@ import sys
 import asyncio
 import argparse
 from pathlib import Path
+from typing import Optional
 import logging
 
 # Add the app directory to Python path
@@ -297,7 +298,7 @@ Seek medical attention for:
     logger.info(f"Created {len(sample_docs)} sample documents in {docs_path}")
 
 
-async def seed_vector_index(docs_path: str = None, create_samples: bool = False):
+async def seed_vector_index(docs_path: Optional[str] = None, create_samples: bool = False):
     """
     Seed the vector index with healthcare documents.
     
@@ -308,7 +309,7 @@ async def seed_vector_index(docs_path: str = None, create_samples: bool = False)
     
     docs_path = docs_path or DOCUMENTS_PATH
     
-    logger.info(f"Starting vector index seeding process...")
+    logger.info("Starting vector index seeding process...")
     logger.info(f"Documents path: {docs_path}")
     logger.info(f"Development mode: {USE_DEV_LLM}")
     
@@ -370,9 +371,7 @@ async def seed_vector_index(docs_path: str = None, create_samples: bool = False)
             return False
             
     except Exception as e:
-        logger.error(f"Error during vector index seeding: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception(f"Error during vector index seeding: {e}")
         return False
 
 

@@ -85,14 +85,10 @@ class TestAudioUtils:
     async def test_audio_error_handling(self):
         """Test audio processing error handling."""
         
-        # Test with invalid audio data
         with patch('app.services.audio_utils.USE_DEV_LLM', False):
             with patch('app.services.audio_utils.AUDIO_PROVIDER', 'invalid_provider'):
-                try:
+                with pytest.raises(AudioProcessingError):
                     await transcribe_audio(b"invalid", "en")
-                except AudioProcessingError:
-                    pass  # Expected error
-
 
 class TestRAGPipeline:
     """Test RAG pipeline functionality."""

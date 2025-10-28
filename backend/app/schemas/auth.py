@@ -30,7 +30,7 @@ class UserInDB(UserBase):
     """Schema for user data stored in database."""
     id: UUID
     hashed_password: Optional[str] = None
-    refresh_tokens: List[dict] = []
+    refresh_tokens: List[dict] = Field(default_factory=list)
     created_at: datetime
     
     class Config:

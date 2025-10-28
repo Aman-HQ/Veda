@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from datetime import datetime
-from sqlalchemy import text, select
+from sqlalchemy import text, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import config
 from app.db.session import engine, get_db
@@ -287,7 +287,12 @@ async def demo_chat(username: str, user_message: str, db: AsyncSession = Depends
             db.add(bot_msg)
             
             # Update conversation message count
-            conv.messages_count = conv.messages_count + 2  # user + assistant
+            # conv.messages_count = conv.messages_count + 2  # user + assistant
+            await db.execute(
+                update(Conversation)
+                .where(Conversation.id == conv.id)
+                .values(messages_count=Conversation.messages_count + 2)
+            )
             await db.refresh(bot_msg)
         # Transaction commits here automatically
 

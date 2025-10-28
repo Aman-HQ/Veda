@@ -3,10 +3,10 @@ CRUD operations for Message model.
 """
 from typing import Optional, List, Dict, Any
 from uuid import UUID
-from sqlalchemy import select, delete, and_, update
+from sqlalchemy import select, delete, and_, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-
+import db
 from ..models.message import Message
 from ..models.conversation import Conversation
 from ..schemas.chat import MessageCreate, MessageUpdate
@@ -209,7 +209,8 @@ class MessageCRUD:
     async def update_status(
         db: AsyncSession, 
         message_id: UUID, 
-        status: str
+        status: str,
+        user_id: Optional[UUID] = None
     ) -> Optional[Message]:
         """
         Update message status.
@@ -218,11 +219,17 @@ class MessageCRUD:
             db: Database session
             message_id: Message UUID
             status: New status
-            
+            user_id: User UUID for ownership verification
+
         Returns:
             Updated message if found, None otherwise
         """
-        result = await db.execute(select(Message).where(Message.id == message_id))
+        # result = await db.execute(select(Message).where(Message.id == message_id))
+        query = select(Message).where(Message.id == message_id)
+        if user_id:
+            query = query.join(Conversation).where(Conversation.user_id == user_id)
+    
+        result = await db.execute(query)
         message = result.scalars().first()
         
         if message:
@@ -361,12 +368,15 @@ class MessageCRUD:
         Returns:
             List of matching messages
         """
+        # Escape special characters to prevent SQL injection
+        escaped_term = search_term.replace('%', r'\%').replace('_', r'\_')
+
         result = await db.execute(
             select(Message)
             .join(Conversation)
             .where(
                 Conversation.user_id == user_id,
-                Message.content.ilike(f"%{search_term}%")
+                Message.content.ilike(f"%{escaped_term}%", escape='\\')
             )
             .order_by(Message.created_at.desc())
             .limit(limit)

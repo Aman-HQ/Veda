@@ -18,9 +18,8 @@ async def test_metrics_endpoint_exists(client: AsyncClient):
     """Test that /metrics endpoint exists when enabled."""
     response = await client.get("/metrics")
     
-    # Should return 200 or 404 if not enabled
-    assert response.status_code in [200, 404]
-
+    # Should return 200 when metrics are enabled
+    assert response.status_code == 200
 
 @pytest.mark.skipif(
     not config.ENABLE_METRICS,
@@ -31,14 +30,14 @@ async def test_metrics_format(client: AsyncClient):
     """Test that metrics endpoint returns Prometheus format."""
     response = await client.get("/metrics")
     
-    if response.status_code == 200:
-        content = response.text
+    assert response.status_code == 200
+    content = response.text
         
-        # Should contain Prometheus metric format
-        # Common metrics from prometheus-fastapi-instrumentator
-        assert "http_requests_total" in content or "http_request" in content
-        assert "TYPE" in content  # Prometheus TYPE comments
-        assert "HELP" in content  # Prometheus HELP comments
+    # Should contain Prometheus metric format
+    # Common metrics from prometheus-fastapi-instrumentator
+    assert "http_requests_total" in content or "http_request" in content
+    assert "TYPE" in content  # Prometheus TYPE comments
+    assert "HELP" in content  # Prometheus HELP comments
 
 
 @pytest.mark.asyncio
@@ -66,12 +65,12 @@ async def test_metrics_after_requests(client: AsyncClient):
     
     # Get metrics
     response = await client.get("/metrics")
-    
-    if response.status_code == 200:
-        content = response.text
+
+    assert response.status_code == 200
+    content = response.text
         
-        # Should have recorded our requests
-        assert "http_" in content  # Some HTTP metric should exist
+    # Should have recorded our requests
+    assert "http_" in content  # Some HTTP metric should exist
 
 
 @pytest.mark.asyncio
@@ -102,10 +101,10 @@ async def test_metrics_content_type(client: AsyncClient):
     """Test that metrics endpoint returns correct content type."""
     response = await client.get("/metrics")
     
-    if response.status_code == 200:
-        # Prometheus metrics should be text/plain
-        content_type = response.headers.get("content-type", "")
-        assert "text/plain" in content_type or "text" in content_type
+    assert response.status_code == 200
+    # Prometheus metrics should be text/plain
+    content_type = response.headers.get("content-type", "")
+    assert "text/plain" in content_type or "text" in content_type
 
 
 @pytest.mark.skipif(
@@ -120,11 +119,11 @@ async def test_metrics_include_labels(client: AsyncClient):
     
     response = await client.get("/metrics")
     
-    if response.status_code == 200:
-        content = response.text
+    assert response.status_code == 200
+    content = response.text
         
-        # Should include HTTP method labels
-        assert 'method="GET"' in content or "GET" in content
+    # Should include HTTP method labels
+    assert 'method="GET"' in content or "GET" in content
 
 
 @pytest.mark.asyncio
