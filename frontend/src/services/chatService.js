@@ -39,7 +39,7 @@ const realApi = {
 
   async listMessages(conversationId) {
     try {
-      const response = await api.get(`/api/conversations/${conversationId}/messages`, {
+      const response = await api.get(`/api/${conversationId}/messages`, {
         params: {
           limit: 100,
           order_desc: false  // Oldest first for chat display
@@ -54,7 +54,7 @@ const realApi = {
 
   async createMessage({ conversationId, role, content }) {
     try {
-      const response = await api.post(`/api/conversations/${conversationId}/messages`, {
+      const response = await api.post(`/api/${conversationId}/messages`, {
         content,
         sender: role  // Backend expects 'sender' field
       });

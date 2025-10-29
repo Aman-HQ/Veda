@@ -80,12 +80,11 @@ export default function useAuth() {
       return access_token;
     } catch (error) {
       console.error('Token refresh failed:', error);
-      // Clear tokens and redirect to login
+      // Clear tokens and throw error (let caller handle navigation)
       authStore.clear();
-      navigate('/login', { replace: true });
       throw error;
     }
-  }, [navigate]);
+  }, []);
 
   const logout = useCallback(() => {
     authStore.clear();
