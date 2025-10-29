@@ -1,24 +1,68 @@
 import * as mockApi from './mockApi.js';
-// import api from './api.js'; // future real API client
+import api from './api.js';
 
 // Default to mock API during Phase F. If the env var is absent, treat as 'true'.
 const useMock = (import.meta.env.VITE_USE_MOCK_API ?? 'true') === 'true';
 
 const realApi = {
   async listConversations() {
-    throw new Error('Real API not implemented yet');
+    try {
+      const response = await api.get('/api/conversations');
+      return response.data;
+    } catch (error) {
+      console.error('Failed to list conversations:', error);
+      throw error;
+    }
   },
+
   async createConversation({ title }) {
-    throw new Error('Real API not implemented yet');
+    try {
+      const response = await api.post('/api/conversations', {
+        title: title || 'New Conversation'
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Failed to create conversation:', error);
+      throw error;
+    }
   },
+
   async deleteConversation(id) {
-    throw new Error('Real API not implemented yet');
+    try {
+      await api.delete(`/api/conversations/${id}`);
+      return { success: true };
+    } catch (error) {
+      console.error('Failed to delete conversation:', error);
+      throw error;
+    }
   },
+
   async listMessages(conversationId) {
-    throw new Error('Real API not implemented yet');
+    try {
+      const response = await api.get(`/api/conversations/${conversationId}/messages`, {
+        params: {
+          limit: 100,
+          order_desc: false  // Oldest first for chat display
+        }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Failed to list messages:', error);
+      throw error;
+    }
   },
+
   async createMessage({ conversationId, role, content }) {
-    throw new Error('Real API not implemented yet');
+    try {
+      const response = await api.post(`/api/conversations/${conversationId}/messages`, {
+        content,
+        sender: role  // Backend expects 'sender' field
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Failed to create message:', error);
+      throw error;
+    }
   },
 };
 

@@ -34,6 +34,10 @@ const authStore = {
       return null;
     }
   },
+  
+  hasRefreshToken() {
+    return Boolean(this.getRefreshToken());
+  },
 };
 
 export default authStore;
