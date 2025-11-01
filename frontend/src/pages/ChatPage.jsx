@@ -42,9 +42,32 @@ export default function ChatPage() {
   ), [conversations, activeConversationId]);
 
   const handleSend = async (text) => {
-    if (!activeConversationId) return;
-    await createMessage({ conversationId: activeConversationId, role: 'user', content: text });
-    setReloadToken((n) => n + 1); // lightweight refresh
+    let conversationId = activeConversationId;
+    
+    // If no active conversation, create one automatically
+    if (!conversationId) {
+      try {
+        const created = await createConversation({ title: 'New conversation' });
+        conversationId = created.id;
+        
+        // Update conversations list and set as active
+        const list = await listConversations();
+        setConversations(list);
+        setActiveConversationId(conversationId);
+        uiStore.setActiveConversation(conversationId);
+      } catch (error) {
+        console.error('Failed to create conversation:', error);
+        return;
+      }
+    }
+    
+    // Send the message
+    try {
+      await createMessage({ conversationId, role: 'user', content: text });
+      setReloadToken((n) => n + 1); // lightweight refresh
+    } catch (error) {
+      console.error('Failed to send message:', error);
+    }
     // streaming will be handled within ChatWindow; just refresh once user msg is created
   };
 

@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login.jsx';
 import Register from './pages/Register.jsx';
 import ChatPage from './pages/ChatPage.jsx';
+import OAuthCallback from './pages/OAuthCallback.jsx';
 import ProtectedRoute from './routes/ProtectedRoute.jsx';
 import AuthLayout from './components/Layout/AuthLayout.jsx';
 
@@ -11,6 +12,7 @@ function App() {
     <Routes>
       <Route path="/login" element={<AuthLayout><Login /></AuthLayout>} />
       <Route path="/register" element={<AuthLayout><Register /></AuthLayout>} />
+      <Route path="/oauth/callback" element={<OAuthCallback />} />
       <Route element={<ProtectedRoute />}>
         <Route path="/chat" element={<ChatPage />} />
       </Route>

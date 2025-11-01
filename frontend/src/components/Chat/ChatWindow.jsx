@@ -109,7 +109,7 @@ export default function ChatWindow({ conversationId, reloadToken, onAssistantDon
         <div className="max-w-2xl mx-auto w-full py-6 sm:py-8 space-y-4">
           {!conversationId ? (
             <div className="text-center text-slate-500 dark:text-slate-400 text-sm">
-              Select or create a conversation to get started.
+              Start typing below to begin a new conversation.
             </div>
           ) : loading ? (
             <div className="text-center text-slate-500 dark:text-slate-400 text-sm">Loading…</div>

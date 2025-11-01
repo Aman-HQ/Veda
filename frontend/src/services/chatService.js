@@ -45,7 +45,11 @@ const realApi = {
           order_desc: false  // Oldest first for chat display
         }
       });
-      return response.data;
+      // Map backend 'sender' field to frontend 'role' field
+      return response.data.map(msg => ({
+        ...msg,
+        role: msg.sender
+      }));
     } catch (error) {
       console.error('Failed to list messages:', error);
       throw error;
@@ -58,7 +62,11 @@ const realApi = {
         content,
         sender: role  // Backend expects 'sender' field
       });
-      return response.data;
+      // Map backend 'sender' field to frontend 'role' field
+      return {
+        ...response.data,
+        role: response.data.sender
+      };
     } catch (error) {
       console.error('Failed to create message:', error);
       throw error;

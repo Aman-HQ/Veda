@@ -48,6 +48,9 @@ venv.bak/
 htmlcov/
 .tox/
 
+# Firebase Admin SDK credentials file
+firebase-credentials.json
+
 # Logs
 *.log
 logs/
