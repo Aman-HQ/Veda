@@ -644,6 +644,9 @@ Add this function to send verification email:
 async def signup(request: SignupRequest):
     """
     User signup - creates user in PostgreSQL and Firebase
+
+    Note: This signup endpoint is for email/password users only. Google Sign-In users follow a different flow and don't need email verification.
+
     """
     email = request.email.lower().strip()
     password = request.password
@@ -1087,8 +1090,136 @@ VERIFIED ─→ [Login Success] [Create Firebase User]
 
 ---
 
+### **Step 5.6.1: Google Sign-In Users - No Verification Required**
 
-### **Step 5.6.1: What About Users Who Reset Password?**
+**Important:** Google Sign-In users do NOT need email verification because:
+- Google has already verified their email address
+- You trust Google's verification process
+
+**Update your login endpoint to skip Firebase verification for Google users:**
+```python
+@router.post("/login")
+async def login(request: LoginRequest):
+    """
+    User login - check email verification status
+    Only applies to email/password users, NOT Google sign-in users
+    """
+    email = request.email.lower().strip()
+    password = request.password
+    
+    try:
+        # Step 1: Authenticate user in PostgreSQL
+        user = await authenticate_user(email, password)
+        
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials"
+            )
+        
+        # Step 2: Check if user signed up with Google
+        # If so, skip Firebase verification check
+        if user.get('auth_provider') == 'google':  # or however you track this
+            # Google users are pre-verified, skip Firebase check
+            access_token = create_access_token(user)
+            return {
+                "access_token": access_token,
+                "email": email
+            }
+        
+        # Step 3: For email/password users, check Firebase verification
+        try:
+            firebase_user = firebase_auth.get_user_by_email(email)
+            
+            if not firebase_user.email_verified:
+                # Resend verification email
+                try:
+                    verification_link = firebase_auth.generate_email_verification_link(email)
+                    logger.info(f"Resent verification email to unverified user: {email}")
+                except Exception as e:
+                    logger.error(f"Error sending verification email: {str(e)}")
+                
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Please verify your email before logging in. A new verification email has been sent to your inbox."
+                )
+                
+        except firebase_auth.UserNotFoundError:
+            # User exists in PostgreSQL but not Firebase
+            # Create Firebase user and send verification
+            logger.warning(f"User {email} exists in PostgreSQL but not in Firebase")
+            
+            try:
+                firebase_user = firebase_auth.create_user(
+                    email=email,
+                    email_verified=False
+                )
+                
+                verification_link = firebase_auth.generate_email_verification_link(email)
+                logger.info(f"Created Firebase user and sent verification email to: {email}")
+                
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Your email is not verified. A verification email has been sent to your inbox. Please verify your email and try logging in again."
+                )
+            except Exception as e:
+                logger.error(f"Error creating Firebase user for {email}: {str(e)}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Error processing login. Please try again."
+                )
+        
+        # Step 4: Email verified, issue access token
+        access_token = create_access_token(user)
+        
+        return {
+            "access_token": access_token,
+            "email": email
+        }
+        
+    except Exception as e:
+        logger.error(f"Login error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Login failed"
+        )
+```
+
+**Key Change:** Added check for `auth_provider` - if it's 'google', skip Firebase verification.
+
+---
+
+### **How to Track Auth Provider in PostgreSQL**
+
+**Update your users table to include `auth_provider` column:**
+```sql
+ALTER TABLE users ADD COLUMN auth_provider VARCHAR(50) DEFAULT 'email';
+-- Values: 'email' or 'google'
+```
+
+**When creating user via Google Sign-In:**
+```python
+# In your Google sign-in endpoint
+await create_user_in_postgres(
+    email=email,
+    password_hash=None,  # No password for Google users
+    auth_provider='google'
+)
+```
+
+**When creating user via Email/Password:**
+```python
+# In your signup endpoint
+await create_user_in_postgres(
+    email=email,
+    password_hash=hashed_password,
+    auth_provider='email'
+)
+```
+
+---
+
+### **Step 5.6.2: What About Users Who Reset Password?**
 
 **Question:** If a user resets their password via Firebase, can they login?
 
@@ -1199,7 +1330,7 @@ export default ResendVerification;
 
 ### **Email Verification Flow:**
 ```
-[User Signs Up]
+[User Signs Up with Email/Password]
       ↓
 [Backend: Create user in PostgreSQL & Firebase]
       ↓
@@ -1224,6 +1355,19 @@ export default ResendVerification;
 [Redirect to chat page]
 ```
 
+### **Google Sign-In Users:**
+```
+[Sign In with Google]
+      ↓
+[Google Verifies Email] ← Already done by Google
+      ↓
+[Create in PostgreSQL ONLY]
+      ↓
+[Auto Login Immediately]
+      ↓
+[Can login anytime with Google] ← No Firebase verification needed
+```
+
 ---
 
 ### **Notes:**
@@ -1235,6 +1379,7 @@ export default ResendVerification;
 - Manual login will check verification status and block unverified users
 - Password reset flow does NOT auto-login (users must login manually after reset)
 - **If user exists in PostgreSQL but not in Firebase:** System automatically creates Firebase user, sends verification email, and blocks login until verified
+- **Google Sign-In users:** Do NOT require email verification (Google already verified their email)
 
 ---
 

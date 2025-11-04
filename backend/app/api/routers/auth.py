@@ -272,9 +272,15 @@ async def google_callback(
             detail="Google OAuth2 not configured"
         )
     
+    # Track if we created a new user (for rollback on error)
+    user_created = False
+    user = None
+
     try:
+        logger.info(f"Processing Google OAuth callback with code: {oauth_request.code[:10]}...")
+        
         # Exchange authorization code for access token
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:
             token_response = await client.post(
                 "https://oauth2.googleapis.com/token",
                 data={
@@ -286,35 +292,50 @@ async def google_callback(
                 }
             )
 
-            # FIXED: Handle Google's 403 test user restrictions BEFORE raise_for_status()
-            if token_response.status_code == 403:
+            # Handle errors before parsing response
+            if not token_response.is_success:
                 try:
                     error_data = token_response.json()
-                    error_message = error_data.get("error_description", "Access denied")
+                    error_code = error_data.get("error", "unknown")
+                    error_description = error_data.get("error_description", "Unknown error")
                 except Exception:
-                    error_message = "Access denied"
+                    error_code = "unknown"
+                    error_description = f"HTTP {token_response.status_code}"
                 
-                logger.warning(f"Google OAuth access denied: {error_message}")
+                logger.error(f"Google OAuth token exchange failed - Status: {token_response.status_code}, Error: {error_code}, Description: {error_description}")
                 
-                # Check if it's a test user restriction
-                if "access_denied" in error_message.lower() or "not given access" in error_message.lower():
+                # Handle specific error codes
+                if error_code == "invalid_grant":
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Authorization code has expired or already been used. Please try signing in again."
+                    )
+                elif token_response.status_code == 400:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Invalid request: {error_description}"
+                    )
+                elif token_response.status_code == 401:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Invalid client credentials. Please contact support."
+                    )
+                elif token_response.status_code == 403:
                     raise HTTPException(
                         status_code=status.HTTP_403_FORBIDDEN,
-                        detail="This app is in testing mode. Your Google account is not authorized. Please contact the administrator to be added as a test user."
+                        detail="Access denied by Google. Please contact support."
                     )
-                
-                # Generic 403 error
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Access denied by Google. Please try again or contact support."
-                )
-
-            # Raise for other HTTP errors (not 403 since we handled it above)
-            token_response.raise_for_status()
+                else:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Google authentication failed. Please try again."
+                    )
+            
             token_data = token_response.json()
+            logger.info("Google token exchange successful")
 
         # Get user info from Google
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:
             user_response = await client.get(
                 "https://www.googleapis.com/oauth2/v2/userinfo",
                 headers={"Authorization": f"Bearer {token_data['access_token']}"}
@@ -323,12 +344,16 @@ async def google_callback(
             google_user = user_response.json()
 
         user_email = google_user["email"]
+        # user_name = google_user.get("name", "")
         logger.info(f"Google OAuth successful for user: {user_email}")
         
         # Check if user exists
         user = await UserCRUD.get_by_email(db, user_email)
         
         if not user:
+            # Mark that we're creating a new user
+            user_created = True
+           
             # Create new user from Google data
             user = await UserCRUD.create_oauth_user(
                 db,
@@ -366,40 +391,60 @@ async def google_callback(
         
         await UserCRUD.update_refresh_tokens(db, user, refresh_tokens)
 
+        # Commit the transaction
+        await db.commit()
+        
+        logger.info(f"OAuth authentication completed successfully for {user_email}")
+
         return Token(
             access_token=access_token,
             refresh_token=refresh_token,
             token_type="bearer"
         )
         
+    except HTTPException:
+        # Re-raise HTTP exceptions (already formatted)
+        if user_created and user:
+            await db.rollback()
+            logger.warning(f"Rolled back user creation due to authentication error")
+        raise
+        
     except httpx.HTTPStatusError as e:
         logger.exception("Google OAuth2 HTTP error")
 
-        # MODIFIED: Better error handling for different status codes
-        if e.response.status_code == 400:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid authorization code. The code may have expired or already been used. Please try signing in again."
-            ) from e
-        elif e.response.status_code == 401:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid client credentials. Please contact support."
-            ) from e
-        elif e.response.status_code == 403:  # ← modified block
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied by Google. This app may be in testing mode."
-            ) from e
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Google OAuth2 authentication failed"
-            ) from e
+        # Rollback if user was created
+        if user_created and user:
+            await db.rollback()
+            logger.warning(f"Rolled back user creation due to HTTP error")
+        
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to communicate with Google. Please try again."
+        ) from e
     
-    except (httpx.RequestError, KeyError, ValueError) as e:
-        logger.exception("OAuth2 processing error")
+    except (httpx.RequestError, httpx.TimeoutException) as e:
+        logger.exception("Google OAuth2 network error")
+        
+        # Rollback if user was created
+        if user_created and user:
+            await db.rollback()
+            logger.warning(f"Rolled back user creation due to network error")
+        
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not connect to Google. Please try again."
+        ) from e
+    
+    except (KeyError, ValueError) as e:
+        logger.exception("OAuth2 data processing error")
+    
+        # Rollback if user was created
+        if user_created and user:
+            await db.rollback()
+            logger.warning(f"Rolled back user creation due to data error")
+        
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="OAuth2 authentication failed. Please try again."
         ) from e
+    

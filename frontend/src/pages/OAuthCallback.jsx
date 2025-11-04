@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../services/api.js';
 import authStore from '../stores/authStore.js';
@@ -9,7 +9,19 @@ export default function OAuthCallback() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
+  // CRITICAL FIX: Use useRef to prevent double execution in React 18 Strict Mode
+  const hasProcessed = useRef(false);
+
   useEffect(() => {
+    // CRITICAL: Prevent multiple executions (React 18 Strict Mode calls useEffect twice)
+    if (hasProcessed.current) {
+      console.log('OAuth callback already processed, skipping...');
+      return;
+    }
+    
+    hasProcessed.current = true;
+    console.log('Processing OAuth callback...');
+
     const handleOAuthCallback = async () => {
       try {
         // Get authorization code from URL
@@ -23,7 +35,7 @@ export default function OAuthCallback() {
           setError(`Authentication cancelled or failed`);
           setLoading(false);
           setTimeout(() => navigate('/login', { replace: true }), 2000);
-          return;
+          return; // CRITICAL: Stop execution
         }
 
         if (!code) {
@@ -31,65 +43,81 @@ export default function OAuthCallback() {
           setError('No authorization code received');
           setLoading(false);
           setTimeout(() => navigate('/login', { replace: true }), 2000);
-          return;
+          return; // CRITICAL: Stop execution
         }
 
-        // MODIFIED: Exchange code for tokens - wait for completion
-        let response;
-        try {
-          response = await api.post('/api/auth/google/callback', {
+        console.log('Exchanging authorization code for tokens...');
+
+        // Exchange code for tokens
+        const response = await api.post('/api/auth/google/callback', {
           code,
           state: state || undefined
         });
-        } catch (err) {
-          // MODIFIED: Better error handling with specific messages
-          console.error('OAuth callback error:', err);
 
-          let errorMessage = 'Authentication failed. Please try again.';
-          
-          if (err.response?.status === 403) {
-            errorMessage = 'Your Google account is not authorized. This app is in testing mode.';
-          } else if (err.response?.status === 400) {
-            errorMessage = 'Invalid authorization code. Please try again.';
-          } else if (err.response?.data?.detail) {
-            errorMessage = err.response.data.detail;
-          }
-          
-          setError(errorMessage);
-          setLoading(false);
-          // Redirect to login after showing error
-          setTimeout(() => navigate('/login', { replace: true }), 3000);
-          return; // CRITICAL: Exit early on error - prevents token storage
+        console.log('Token exchange successful, response received');
+
+        // Validate response structure
+        if (!response || !response.data) {
+          console.error('Invalid response structure:', response);
+          throw new Error('Invalid response from server');
         }
 
-        // MODIFIED: Only store tokens if backend succeeded
+        // Validate response has tokens
         const { access_token, refresh_token } = response.data;
         
         if (!access_token || !refresh_token) {
-          throw new Error('Invalid token response from server');
+          console.error('Missing tokens in response:', response.data);
+          throw new Error('Invalid token response from server - missing tokens');
         }
 
-        // Store tokens only after successful validation
+        console.log('Tokens validated, storing...');
+
+        // Store tokens only after ALL validations passed
         authStore.setTokens({
           accessToken: access_token,
           refreshToken: refresh_token
         });
 
+        console.log('Tokens stored successfully, redirecting to chat...');
+
         // MODIFIED: Successfully authenticated - redirect immediately
         navigate('/chat', { replace: true });
 
       } catch (err) {
-        // MODIFIED: Catch-all error handler
-        console.error('Unexpected OAuth error:', err);
-        setError('An unexpected error occurred. Please try again.');
+        // Handle ALL API errors here
+        console.error('OAuth callback error:', err);
+        
+        // Clear any tokens that might have been stored
+        authStore.clearTokens();
+        
+        let errorMessage = 'Authentication failed. Please try again.';
+        
+        // Handle specific error codes
+        if (err.response?.status === 403) {
+          errorMessage = 'Your Google account is not authorized. Please contact support.';
+        } else if (err.response?.status === 400) {
+          const detail = err.response?.data?.detail || '';
+          
+          // Authorization code already used or expired
+          if (detail.includes('expired') || detail.includes('already been used')) {
+            errorMessage = 'Session expired. Please try signing in again.';
+          } else {
+            errorMessage = detail || 'Invalid request. Please try again.';
+          }
+        } else if (err.response?.data?.detail) {
+          errorMessage = err.response.data.detail;
+        }
+        
+        setError(errorMessage);
         setLoading(false);
+
         // Redirect to login after showing error
-        setTimeout(() => navigate('/login', { replace: true }), 2000);
+        setTimeout(() => navigate('/login', { replace: true }), 3000);
       }
     };
 
     handleOAuthCallback();
-  }, [searchParams, navigate]);
+  }, []); // CRITICAL: Empty dependency array to run only once
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-cyan-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 flex items-center justify-center px-4">
