@@ -82,7 +82,7 @@ user = query("SELECT * FROM users WHERE email = ? AND password = ?")
 
 ### **Step 2.1: Install Required Packages** (✅ already completed)
 ```bash
-pip install firebase-admin python-decouple passlib[bcrypt]
+pip install firebase-admin python-decouple passlib[bcrypt] requests
 ```
 ---
 
@@ -130,6 +130,9 @@ async def forgot_password(request: ForgotPasswordRequest):
     """
     email = request.email.lower().strip()
     
+    logger.info(f"========== FORGOT PASSWORD REQUEST ==========")
+    logger.info(f"Email received: {email}")
+
     try:
         # Step 1: Check if user exists in YOUR PostgreSQL database
         user_exists = await check_user_exists_in_postgres(email)
@@ -154,9 +157,34 @@ async def forgot_password(request: ForgotPasswordRequest):
             logger.info(f"Created Firebase user for password reset: {email}")
         
         # Step 3: Generate password reset link
-        reset_link = firebase_auth.generate_password_reset_link(email)
-        logger.info(f"Generated password reset link for: {email}")
+        # reset_link = firebase_auth.generate_password_reset_link(email)
+        # logger.info(f"Generated password reset link for: {email}")
         
+        # Step 3: Send password reset email using Firebase REST API
+        FIREBASE_WEB_API_KEY ="AIzaSyAtzGoi--CIrt0ronBzo12W32G2qpHe7NA" #Your API key
+        
+        url = f"https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key={FIREBASE_WEB_API_KEY}"
+        
+        payload = {
+            "requestType": "PASSWORD_RESET",
+            "email": email
+        }
+        
+        response = requests.post(url, json=payload)
+        
+        if response.status_code == 200:
+            logger.info(f"✅ Password reset email sent successfully to {email}")
+            logger.info(f"Firebase response: {response.json()}")
+        else:
+            logger.error(f"❌ Firebase email sending failed: {response.status_code}")
+            logger.error(f"Response: {response.text}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to send reset email"
+            )
+
+        logger.info(f"========== REQUEST COMPLETED SUCCESSFULLY ==========")
+
         # Firebase automatically sends email
         return {
             "message": generic_message,
@@ -164,7 +192,8 @@ async def forgot_password(request: ForgotPasswordRequest):
         }
         
     except Exception as e:
-        logger.error(f"Error in forgot_password: {str(e)}")
+        logger.error(f"========== ERROR IN FORGOT PASSWORD ==========")
+        logger.error(f"Error: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred. Please try again later."
@@ -178,6 +207,11 @@ async def check_user_exists_in_postgres(email: str) -> bool:
     return True  # TO D0: real db check
 
 ```
+**Important:** 
+- Firebase Admin SDK's `generate_password_reset_link()` does NOT send emails automatically
+- We use Firebase REST API's `sendOobCode` endpoint to trigger email sending
+- This requires your Firebase Web API Key (same one used in frontend config)
+- Firebase will send the email using your configured email template
 
 ---
 
@@ -276,10 +310,36 @@ async def resend_password_reset(request: ForgotPasswordRequest):
             )
             logger.info(f"Created Firebase user for password reset: {email}")
         
-        # Generate new password reset link
-        reset_link = firebase_auth.generate_password_reset_link(email)
-        logger.info(f"Resent password reset link for: {email}")
+        # # Generate new password reset link
+        # reset_link = firebase_auth.generate_password_reset_link(email)
+        # logger.info(f"Resent password reset link for: {email}")
         
+        # Send email via REST API
+        FIREBASE_WEB_API_KEY = os.getenv("FIREBASE_WEB_API_KEY")
+        
+        if not FIREBASE_WEB_API_KEY:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Email service not configured"
+            )
+
+        url = f"https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key={FIREBASE_WEB_API_KEY}"
+        payload = {
+            "requestType": "PASSWORD_RESET",
+            "email": email
+        }
+
+        response = requests.post(url, json=payload)
+
+        if response.status_code == 200:
+            logger.info(f"✅ Resent password reset email to {email}")
+        else:
+            logger.error(f"❌ Failed to resend email: {response.status_code}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to send reset email"
+            )
+
         return {
             "message": generic_message,
             "success": True
@@ -351,7 +411,7 @@ const ForgotPassword = () => {
 
     try {
       const endpoint = isResend ? '/resend-password-reset' : '/forgot-password';
-      const response = await axios.post('http://localhost:8000${endpoint}', {
+      const response = await axios.post(`http://localhost:8000${endpoint}`, {
         email: email
       });
 
@@ -671,10 +731,40 @@ async def signup(request: SignupRequest):
             email_verified=False  # Not verified yet
         )
         
-        # Step 4: Generate and send verification email
-        verification_link = firebase_auth.generate_email_verification_link(email)
-        logger.info(f"Verification email sent to: {email}")
+        # # Step 4: Generate and send verification email
+        # verification_link = firebase_auth.generate_email_verification_link(email)
+        # logger.info(f"Verification email sent to: {email}")
         
+        # Step 4: Send verification email using Firebase REST API
+        FIREBASE_WEB_API_KEY = os.getenv("FIREBASE_WEB_API_KEY")
+
+        if not FIREBASE_WEB_API_KEY:
+            logger.error("Firebase Web API Key not configured")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Email service not configured"
+            )
+
+        logger.info(f"Sending verification email via Firebase REST API...")
+
+        url = f"https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key={FIREBASE_WEB_API_KEY}"
+
+        payload = {
+            "requestType": "VERIFY_EMAIL",
+            "email": email
+        }
+
+        response = requests.post(url, json=payload)
+
+        if response.status_code == 200:
+            logger.info(f"✅ Verification email sent successfully to {email}")
+            logger.info(f"Firebase response: {response.json()}")
+        else:
+            logger.error(f"❌ Firebase email sending failed: {response.status_code}")
+            logger.error(f"Response: {response.text}")
+            # Don't fail user creation, just log the error
+            logger.warning("User created but verification email failed to send")
+
         # Firebase automatically sends the email!
         
         return {
@@ -776,6 +866,14 @@ def create_access_token(user):
     return "your_jwt_token_here"  # Placeholder
 
 ```
+**Important:** 
+- Firebase Admin SDK's `generate_email_verification_link()` does NOT send emails automatically
+- We use Firebase REST API's `sendOobCode` endpoint to trigger email sending
+- Use `"requestType": "VERIFY_EMAIL"` for verification emails
+- Use `"requestType": "PASSWORD_RESET"` for password reset emails
+- This requires your Firebase Web API Key (same one used in frontend config)
+- Firebase will send the email using your configured email template
+
 
 ---
 
@@ -987,10 +1085,24 @@ async def login(request: LoginRequest):
             
             if not firebase_user.email_verified:
                 # User exists in Firebase but email not verified
-                # Resend verification email
+                # Resend verification email via Firebase REST API
                 try:
-                    verification_link = firebase_auth.generate_email_verification_link(email)
-                    logger.info(f"Resent verification email to unverified user: {email}")
+                    FIREBASE_WEB_API_KEY = os.getenv("FIREBASE_WEB_API_KEY")
+                    
+                    if FIREBASE_WEB_API_KEY:
+                        url = f"https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key={FIREBASE_WEB_API_KEY}"
+                        payload = {
+                            "requestType": "VERIFY_EMAIL",
+                            "email": email
+                        }
+                        response = requests.post(url, json=payload)
+                        
+                        if response.status_code == 200:
+                            logger.info(f"✅ Resent verification email to unverified user: {email}")
+                        else:
+                            logger.error(f"❌ Failed to resend verification email: {response.status_code}")
+                    else:
+                        logger.error("Firebase Web API Key not configured")
                 except Exception as e:
                     logger.error(f"Error sending verification email: {str(e)}")
 
@@ -1010,9 +1122,23 @@ async def login(request: LoginRequest):
                     email_verified=False
                 )
                 
-                # Send verification email
-                verification_link = firebase_auth.generate_email_verification_link(email)
-                logger.info(f"Created Firebase user and sent verification email to: {email}")
+                # Send verification email via REST API
+                FIREBASE_WEB_API_KEY = os.getenv("FIREBASE_WEB_API_KEY")
+
+                if FIREBASE_WEB_API_KEY:
+                    url = f"https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key={FIREBASE_WEB_API_KEY}"
+                    payload = {
+                        "requestType": "VERIFY_EMAIL",
+                        "email": email
+                    }
+                    response = requests.post(url, json=payload)
+                    
+                    if response.status_code == 200:
+                        logger.info(f"✅ Created Firebase user and sent verification email to: {email}")
+                    else:
+                        logger.error(f"❌ Failed to send verification email")
+                else:
+                    logger.error("Firebase Web API Key not configured")
                 
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
@@ -1134,8 +1260,24 @@ async def login(request: LoginRequest):
             if not firebase_user.email_verified:
                 # Resend verification email
                 try:
-                    verification_link = firebase_auth.generate_email_verification_link(email)
-                    logger.info(f"Resent verification email to unverified user: {email}")
+                    # Send verification email via REST API
+                    FIREBASE_WEB_API_KEY = os.getenv("FIREBASE_WEB_API_KEY")
+
+                    if FIREBASE_WEB_API_KEY:
+                        url = f"https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key={FIREBASE_WEB_API_KEY}"
+                        payload = {
+                            "requestType": "VERIFY_EMAIL",
+                            "email": email
+                        }
+                        response = requests.post(url, json=payload)
+                        
+                        if response.status_code == 200:
+                            logger.info(f"✅ Created Firebase user and sent verification email to: {email}")
+                        else:
+                            logger.error(f"❌ Failed to send verification email")
+                    else:
+                        logger.error("Firebase Web API Key not configured")
+
                 except Exception as e:
                     logger.error(f"Error sending verification email: {str(e)}")
                 
@@ -1155,8 +1297,23 @@ async def login(request: LoginRequest):
                     email_verified=False
                 )
                 
-                verification_link = firebase_auth.generate_email_verification_link(email)
-                logger.info(f"Created Firebase user and sent verification email to: {email}")
+                # Send verification email via REST API
+                FIREBASE_WEB_API_KEY = os.getenv("FIREBASE_WEB_API_KEY")
+
+                if FIREBASE_WEB_API_KEY:
+                    url = f"https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key={FIREBASE_WEB_API_KEY}"
+                    payload = {
+                        "requestType": "VERIFY_EMAIL",
+                        "email": email
+                    }
+                    response = requests.post(url, json=payload)
+                    
+                    if response.status_code == 200:
+                        logger.info(f"✅ Created Firebase user and sent verification email to: {email}")
+                    else:
+                        logger.error(f"❌ Failed to send verification email")
+                else:
+                    logger.error("Firebase Web API Key not configured")
                 
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
@@ -1264,11 +1421,34 @@ async def resend_verification(request: ForgotPasswordRequest):
         if firebase_user.email_verified:
             return {"message": "Email is already verified"}
         
-        # Generate new verification link
-        verification_link = firebase_auth.generate_email_verification_link(email)
-        
-        return {"message": "Verification email sent!"}
-        
+        # Send verification email via Firebase REST API
+        FIREBASE_WEB_API_KEY = os.getenv("FIREBASE_WEB_API_KEY")
+
+        if not FIREBASE_WEB_API_KEY:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Email service not configured"
+            )
+
+        url = f"https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key={FIREBASE_WEB_API_KEY}"
+        payload = {
+            "requestType": "VERIFY_EMAIL",
+            "email": email
+        }
+
+        response = requests.post(url, json=payload)
+
+        if response.status_code == 200:
+            logger.info(f"✅ Verification email sent to {email}")
+            return {"message": "Verification email sent!"}
+        else:
+            logger.error(f"❌ Failed to send verification email: {response.status_code}")
+            logger.error(f"Response: {response.text}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to send verification email"
+            )
+                
     except firebase_auth.UserNotFoundError:
         # Don't reveal if user exists
         return {"message": "If account exists, verification email sent"}

@@ -4,11 +4,14 @@ Authentication endpoints for user registration, login, and token management.
 from datetime import timedelta, datetime, timezone
 from typing import Dict, Any
 from uuid import UUID, uuid4
+import requests
+import os
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
+from firebase_admin import auth as firebase_auth
 
 from ...db.session import get_db
 from ...crud.user import UserCRUD
@@ -30,7 +33,9 @@ from ...schemas.auth import (
     Token, 
     LoginRequest, 
     RefreshTokenRequest,
-    GoogleOAuthRequest
+    GoogleOAuthRequest,
+    PasswordResetRequest,
+    SyncPasswordRequest
 )
 from ...api.deps import get_current_user
 
@@ -447,4 +452,292 @@ async def google_callback(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="OAuth2 authentication failed. Please try again."
         ) from e
+
+
+@router.post("/forgot-password")
+async def forgot_password(
+    request: PasswordResetRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Handle forgot password request.
+    Generates Firebase password reset link and sends email.
+    Uses Firebase REST API to trigger password reset email.
+
+    Args:
+        request: Password reset request with email
+        db: Database session
+        
+    Returns:
+        Generic success message (for security)
+        
+    Note:
+        Always returns the same message regardless of whether the user exists,
+        to prevent email enumeration attacks.
+    """
+    email = request.email.lower().strip()
     
+    logger.info(f"========== FORGOT PASSWORD REQUEST ==========")
+    logger.info(f"Email received: {email}")
+
+    try:
+        # Step 1: Check if user exists in PostgreSQL database
+        user = await UserCRUD.get_by_email(db, email)
+        
+        # SECURITY: Always return same message regardless of whether user exists
+        generic_message = "If an account exists for that email, a password reset link has been sent."
+        
+        if not user:
+            logger.info(f"Password reset attempted for non-existent email: {email}")
+            return {"message": generic_message}
+        
+        # Step 2: Check if user exists in Firebase (create if needed)
+        logger.info(f"Checking if user exists in Firebase...")
+        try:
+            firebase_user = firebase_auth.get_user_by_email(email)
+            logger.info(f"Firebase user found: {firebase_user.uid}")
+        except firebase_auth.UserNotFoundError:
+            logger.info(f"User not in Firebase, creating new user...")
+            # Create user in Firebase with email_verified=True
+            # They'll set their actual password via the reset link
+            firebase_user = firebase_auth.create_user(
+                email=email,
+                email_verified=True  # Mark as verified since they're resetting password
+            )
+            logger.info(f"Created Firebase user for password reset: {email}")
+        
+        # Step 3: Send password reset email using Firebase REST API
+        FIREBASE_WEB_API_KEY = os.getenv("FIREBASE_WEB_API_KEY")
+
+        if not FIREBASE_WEB_API_KEY:
+            logger.error("Firebase Web API Key not configured")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Email service not configured"
+            )
+
+        logger.info(f"Sending password reset email via Firebase REST API...")
+
+        url = f"https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key={FIREBASE_WEB_API_KEY}"
+
+        payload = {
+            "requestType": "PASSWORD_RESET",
+            "email": email
+        }
+        response = requests.post(url, json=payload)
+
+        if response.status_code == 200:
+            logger.info(f"✅ Password reset email sent successfully to {email}")
+            response_data = response.json()
+            logger.info(f"Firebase response: {response_data}")
+        else:
+            logger.error(f"❌ Firebase email sending failed: {response.status_code}")
+            logger.error(f"Response: {response.text}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to send reset email"
+            )
+
+        logger.info(f"========== REQUEST COMPLETED SUCCESSFULLY ==========")
+
+        # Firebase automatically sends the email!
+        return {
+            "message": generic_message,
+            "success": True
+        }
+        
+    except firebase_auth.FirebaseError as e:
+        logger.error(f"Firebase error in forgot_password for {email}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred. Please try again later."
+        )
+    except Exception as e:
+        # logger.exception(f"Unexpected error in forgot_password for {email}")
+        logger.error(f"========== ERROR IN FORGOT PASSWORD ==========")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error message: {str(e)}")
+        logger.error(f"Full traceback:", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred. Please try again later."
+        )
+
+
+@router.post("/sync-password")
+async def sync_password_with_postgres(
+    request: SyncPasswordRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Sync password to PostgreSQL after Firebase password reset.
+    This endpoint is called AFTER the user resets their password via Firebase.
+    
+    Args:
+        request: Firebase ID token and new password
+        db: Database session
+        
+    Returns:
+        Success message
+        
+    Raises:
+        HTTPException: If token is invalid or password update fails
+        
+    Security:
+        - Verifies Firebase ID token before updating password
+        - Hashes password on backend (never store plain passwords)
+        - Only updates password for authenticated Firebase users
+    """
+    try:
+        # Step 1: Verify the Firebase ID token (security check)
+        decoded_token = firebase_auth.verify_id_token(request.firebase_id_token)
+        email = decoded_token.get('email')
+        
+        if not email:
+            logger.error("No email found in Firebase token")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token: email not found"
+            )
+        
+        logger.info(f"Verified Firebase token for password sync: {email}")
+        
+        # Step 2: Get user from PostgreSQL
+        user = await UserCRUD.get_by_email(db, email)
+        
+        if not user:
+            logger.error(f"User not found in PostgreSQL for password sync: {email}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Step 3: Update password in PostgreSQL (will be hashed by UserCRUD)
+        await UserCRUD.update_password(db, user, request.new_password)
+        logger.info(f"Successfully updated password in PostgreSQL for: {email}")
+        
+        return {
+            "message": "Password updated successfully",
+            "success": True
+        }
+        
+    except firebase_auth.InvalidIdTokenError as e:
+        logger.error(f"Invalid Firebase token in sync_password: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired Firebase token"
+        )
+    except firebase_auth.ExpiredIdTokenError as e:
+        logger.error(f"Expired Firebase token in sync_password: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Firebase token has expired. Please try resetting your password again."
+        )
+    except firebase_auth.RevokedIdTokenError as e:
+        logger.error(f"Revoked Firebase token in sync_password: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Firebase token has been revoked"
+        )
+    except HTTPException:
+        # Re-raise HTTP exceptions (already formatted)
+        raise
+    except Exception as e:
+        logger.exception(f"Unexpected error in sync_password")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error updating password. Please try again."
+        )
+
+
+@router.post("/resend-password-reset")
+async def resend_password_reset(
+    request: PasswordResetRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Resend password reset link.
+    This endpoint allows users to request another password reset email
+    if they didn't receive the first one or if the link expired.
+    
+    Args:
+        request: Password reset request with email
+        db: Database session
+        
+    Returns:
+        Generic success message (for security)
+        
+    Note:
+        Always returns the same message regardless of whether the user exists,
+        to prevent email enumeration attacks. Identical logic to /forgot-password.
+    """
+    email = request.email.lower().strip()
+    
+    try:
+        # Step 1: Check if user exists in PostgreSQL database
+        user = await UserCRUD.get_by_email(db, email)
+        
+        # SECURITY: Always return same message regardless of whether user exists
+        generic_message = "If an account exists for that email, a password reset link has been sent."
+        
+        if not user:
+            logger.info(f"Password reset resend attempted for non-existent email: {email}")
+            return {"message": generic_message}
+        
+        # Step 2: Check if user exists in Firebase (create if needed)
+        try:
+            firebase_user = firebase_auth.get_user_by_email(email)
+            logger.info(f"Resending password reset for existing Firebase user: {email}")
+        except firebase_auth.UserNotFoundError:
+            # Create user in Firebase with email_verified=True
+            # They'll set their actual password via the reset link
+            firebase_user = firebase_auth.create_user(
+                email=email,
+                email_verified=True  # Mark as verified since they're resetting password
+            )
+            logger.info(f"Created Firebase user for password reset resend: {email}")
+        
+        # Send email via REST API
+        FIREBASE_WEB_API_KEY = os.getenv("FIREBASE_WEB_API_KEY")
+
+        if not FIREBASE_WEB_API_KEY:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Email service not configured"
+            )
+
+        url = f"https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key={FIREBASE_WEB_API_KEY}"
+        payload = {
+            "requestType": "PASSWORD_RESET",
+            "email": email
+        }
+
+        response = requests.post(url, json=payload)
+
+        if response.status_code == 200:
+            logger.info(f"✅ Resent password reset email to {email}")
+        else:
+            logger.error(f"❌ Failed to resend email: {response.status_code}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to send reset email"
+            )
+        
+        # Firebase automatically sends the email!
+        return {
+            "message": generic_message,
+            "success": True
+        }
+        
+    except firebase_auth.FirebaseError as e:
+        logger.error(f"Firebase error in resend_password_reset for {email}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred. Please try again later."
+        )
+    except Exception as e:
+        logger.exception(f"Unexpected error in resend_password_reset for {email}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred. Please try again later."
+        )

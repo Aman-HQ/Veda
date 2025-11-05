@@ -1,17 +1,31 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import useAuth from '../hooks/useAuth.js';
 import AuthLayout from '../components/Layout/AuthLayout.jsx';
 
 export default function Login() {
   const { login } = useAuth();
+  const location = useLocation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
+
+  // Check for success message from password reset
+  useEffect(() => {
+    if (location.state?.message && location.state?.type === 'success') {
+      setSuccessMessage(location.state.message);
+      // Clear the message after 5 seconds
+      const timer = setTimeout(() => setSuccessMessage(''), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [location]);
 
   const onSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setSuccessMessage('');
     setLoading(true);
     try {
       await login({ email, password });
@@ -70,7 +84,20 @@ export default function Login() {
               onChange={(e) => setPassword(e.target.value)}
             />
           </label>
+          <div className="flex justify-end">
+            <a href="/forgot-password" className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline">
+              Forgot password?
+            </a>
+          </div>
+          
+          {successMessage && (
+            <div className="rounded-md bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 p-3">
+              <p className="text-sm text-green-800 dark:text-green-200">{successMessage}</p>
+            </div>
+          )}
+          
           {error && <div className="text-red-500 text-sm">{error}</div>}
+          
           <button
             type="submit"
             className="w-full py-2 px-4 rounded-md bg-slate-900 dark:bg-slate-800 text-white font-semibold hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"

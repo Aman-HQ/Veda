@@ -86,3 +86,9 @@ class PasswordResetConfirm(BaseModel):
     """Schema for password reset confirmation."""
     token: str
     new_password: str = Field(..., min_length=8)
+
+
+class SyncPasswordRequest(BaseModel):
+    """Schema for syncing password after Firebase reset."""
+    firebase_id_token: str
+    new_password: str = Field(..., min_length=8, description="New password to sync with PostgreSQL")

@@ -104,6 +104,14 @@ class UserCRUD:
         return user
 
     @staticmethod
+    async def update_password(db: AsyncSession, user: User, new_password: str) -> User:
+        """Update user's password with a new hashed password."""
+        user.hashed_password = get_password_hash(new_password)
+        await db.commit()
+        await db.refresh(user)
+        return user
+
+    @staticmethod
     async def get_all(db: AsyncSession, skip: int = 0, limit: int = 100) -> List[User]:
         """Get all users (admin function)."""
         result = await db.execute(select(User).offset(skip).limit(limit))

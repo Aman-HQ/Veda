@@ -57,7 +57,7 @@ PINECONE_INDEX = os.getenv("PINECONE_INDEX", "veda-index")
 # -------------------------------
 # Audio Provider Configuration (Ollama vs Bhashini)
 # -------------------------------
-AUDIO_PROVIDER = os.getenv("AUDIO_PROVIDER", "ollama")  # "ollama" or "bhashini"
+AUDIO_PROVIDER = os.getenv("AUDIO_PROVIDER", "bhashini")  # "ollama" or "bhashini"
 BHASHINI_BASE_URL = os.getenv("BHASHINI_BASE_URL", "https://bhashini.gov.in/api/v1")
 BHASHINI_API_KEY = os.getenv("BHASHINI_API_KEY", "")
 
@@ -99,6 +99,14 @@ CORS_ORIGINS = os.getenv(
     "CORS_ORIGINS", 
     "http://localhost:5173,http://localhost:3000"
 ).split(",")
+
+# -------------------------------
+# Firebase Configuration
+# -------------------------------
+FIREBASE_CREDENTIALS_PATH = os.getenv(
+    "FIREBASE_CREDENTIALS_PATH",
+    "./firebase-credentials.json"
+)
 
 # -------------------------------
 # Application Settings

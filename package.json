@@ -11,7 +11,7 @@
     "prettier": "prettier --check .",
     "prettier:fix": "prettier --write .",
     "test": "echo \"No tests yet\" && exit 0",
-    "dev:backend": "cd backend && python -m uvicorn app.main:app --reload"
+    "dev:backend": "cd backend && D:/chatbot/Veda/.venv/Scripts/python -m uvicorn app.main:app --reload"
   },
   "keywords": [],
   "author": "",

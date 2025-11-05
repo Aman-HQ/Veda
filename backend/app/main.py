@@ -25,6 +25,16 @@ import traceback
 import time
 import logging
 
+# Initialize Firebase Admin SDK (must be imported before using firebase_auth anywhere)
+try:
+    import app.firebase_config
+    logger = logging.getLogger(__name__)
+    logger.info("✓ Firebase Admin SDK initialized successfully")
+except Exception as e:
+    logger = logging.getLogger(__name__)
+    logger.error(f"❌ Failed to initialize Firebase Admin SDK: {e}")
+    logger.warning("⚠️ Password reset functionality will not work without Firebase")
+
 # Import Prometheus instrumentation (conditionally based on config)
 if config.ENABLE_METRICS:
     from prometheus_fastapi_instrumentator import Instrumentator

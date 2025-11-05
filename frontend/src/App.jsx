@@ -4,6 +4,8 @@ import Login from './pages/Login.jsx';
 import Register from './pages/Register.jsx';
 import ChatPage from './pages/ChatPage.jsx';
 import OAuthCallback from './pages/OAuthCallback.jsx';
+import ForgotPassword from './pages/ForgotPassword.jsx';
+import ResetPassword from './pages/ResetPassword.jsx';
 import ProtectedRoute from './routes/ProtectedRoute.jsx';
 import AuthLayout from './components/Layout/AuthLayout.jsx';
 
@@ -12,6 +14,8 @@ function App() {
     <Routes>
       <Route path="/login" element={<AuthLayout><Login /></AuthLayout>} />
       <Route path="/register" element={<AuthLayout><Register /></AuthLayout>} />
+      <Route path="/forgot-password" element={<AuthLayout><ForgotPassword /></AuthLayout>} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/oauth/callback" element={<OAuthCallback />} />
       <Route element={<ProtectedRoute />}>
         <Route path="/chat" element={<ChatPage />} />
