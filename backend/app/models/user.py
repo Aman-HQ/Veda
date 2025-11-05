@@ -19,6 +19,7 @@ class User(Base):
     hashed_password = Column(String, nullable=True)  # Nullable for OAuth users
     name = Column(String(256), nullable=True)
     role = Column(String(50), default="user")
+    auth_provider = Column(String(50), default="email")  # 'email' or 'google'
     refresh_tokens = Column(JSON, server_default='[]')  # Store refresh tokens metadata
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     

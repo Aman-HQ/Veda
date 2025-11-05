@@ -50,6 +50,7 @@ async def register(
 ):
     """
     Register a new user with email and password.
+    Creates user in both PostgreSQL and Firebase, then sends email verification.
     
     Args:
         user_create: User registration data
@@ -60,19 +61,62 @@ async def register(
         
     Raises:
         HTTPException: If email already exists
+        
+    Note:
+        This endpoint is for email/password users only. 
+        Google Sign-In users follow a different flow and don't need email verification.
     """
+    email = user_create.email.lower().strip()
+    
     # Check if user already exists
-    existing_user = await UserCRUD.get_by_email(db, user_create.email)
+    existing_user = await UserCRUD.get_by_email(db, email)
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
         )
     
-    # Create new user
+    # Create new user in PostgreSQL
     try:
         user = await UserCRUD.create(db, user_create)
+        
+        # Step 2: Create user in Firebase with email_verified=False
+        try:
+            firebase_user = firebase_auth.create_user(
+                email=email,
+                email_verified=False  # Not verified yet
+            )
+            logger.info(f"Created Firebase user for email verification: {email}")
+        except firebase_auth.EmailAlreadyExistsError:
+            logger.warning(f"Firebase user already exists for: {email}")
+            # Continue anyway, we'll send verification email
+        
+        # Step 3: Send verification email using Firebase REST API
+        FIREBASE_WEB_API_KEY = os.getenv("FIREBASE_WEB_API_KEY")
+
+        if FIREBASE_WEB_API_KEY:
+            logger.info(f"Sending verification email via Firebase REST API...")
+
+            url = f"https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key={FIREBASE_WEB_API_KEY}"
+            payload = {
+                "requestType": "VERIFY_EMAIL",
+                "email": email
+            }
+
+            response = requests.post(url, json=payload)
+
+            if response.status_code == 200:
+                logger.info(f"✅ Verification email sent successfully to {email}")
+            else:
+                logger.error(f"❌ Firebase email sending failed: {response.status_code}")
+                logger.error(f"Response: {response.text}")
+                # Don't fail user creation, just log the error
+                logger.warning("User created but verification email failed to send")
+        else:
+            logger.warning("Firebase Web API Key not configured - skipping verification email")
+        
         return user
+        
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -89,6 +133,9 @@ async def login(
     """
     Login with email and password to get access and refresh tokens.
     
+    Email verification is REQUIRED for users who signed up with email/password.
+    Google OAuth users bypass email verification since Google already verifies emails.
+    
     Args:
         login_request: Login credentials
         request: HTTP request for extracting user agent
@@ -98,7 +145,7 @@ async def login(
         Access and refresh tokens
         
     Raises:
-        HTTPException: If credentials are invalid
+        HTTPException: If credentials are invalid or email is not verified
     """
     # Authenticate user
     user = await UserCRUD.authenticate(db, login_request.email, login_request.password)
@@ -108,6 +155,74 @@ async def login(
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    
+    # Check email verification for email/password users only
+    # Skip verification check for Google OAuth users
+    if user.auth_provider == 'email':
+        try:
+            # Check Firebase email verification status
+            firebase_user = firebase_auth.get_user_by_email(user.email)
+            
+            if not firebase_user.email_verified:
+                logger.warning(f"Login attempt with unverified email: {user.email}")
+                
+                # Resend verification email
+                FIREBASE_WEB_API_KEY = os.getenv("FIREBASE_WEB_API_KEY")
+                
+                if FIREBASE_WEB_API_KEY:
+                    url = f"https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key={FIREBASE_WEB_API_KEY}"
+                    payload = {
+                        "requestType": "VERIFY_EMAIL",
+                        "email": user.email
+                    }
+                    
+                    response = requests.post(url, json=payload)
+                    
+                    if response.status_code == 200:
+                        logger.info(f"Verification email resent to {user.email}")
+                
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Email not verified. A new verification email has been sent."
+                )
+                
+        except firebase_auth.UserNotFoundError:
+            # Create Firebase user if doesn't exist (legacy users)
+            try:
+                firebase_user = firebase_auth.create_user(
+                    email=user.email,
+                    email_verified=False
+                )
+                logger.info(f"Created Firebase user for legacy account: {user.email}")
+                
+                # Send verification email
+                FIREBASE_WEB_API_KEY = os.getenv("FIREBASE_WEB_API_KEY")
+                
+                if FIREBASE_WEB_API_KEY:
+                    url = f"https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key={FIREBASE_WEB_API_KEY}"
+                    payload = {
+                        "requestType": "VERIFY_EMAIL",
+                        "email": user.email
+                    }
+                    
+                    response = requests.post(url, json=payload)
+                    
+                    if response.status_code == 200:
+                        logger.info(f"Verification email sent to legacy user: {user.email}")
+                
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Email not verified. A verification email has been sent."
+                )
+            except Exception as e:
+                logger.error(f"Failed to create Firebase user for legacy account: {str(e)}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="An error occurred. Please contact support."
+                )
+    else:
+        # Google OAuth user - skip verification check
+        logger.info(f"Login by Google OAuth user (skipping email verification): {user.email}")
     
     # Create tokens
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -367,7 +482,15 @@ async def google_callback(
             )
             logger.info(f"Created new OAuth user: {user_email}")
         else:
-            logger.info(f"Existing user logged in via OAuth: {user_email}")
+            # Existing user - check if we need to upgrade auth_provider
+            if user.auth_provider == 'email':
+                # ACCOUNT UPGRADE: User registered with email/password but now signing in via Google
+                # Since Google has verified the email, we upgrade them to 'google' auth_provider
+                logger.info(f"🔄 Upgrading user from 'email' to 'google' auth_provider: {user_email}")
+                user = await UserCRUD.upgrade_to_oauth(db, user)
+                logger.info(f"✅ User upgraded to Google OAuth: {user_email}")
+            else:
+                logger.info(f"Existing Google OAuth user logged in: {user_email}")
 
         # Create tokens
         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -740,4 +863,199 @@ async def resend_password_reset(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred. Please try again later."
+        )
+
+
+@router.post("/verify-and-login")
+async def verify_and_login(
+    request: dict,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Auto-login after email verification.
+    Called from the frontend after user clicks verification link in email.
+
+    Args:
+        request: Dictionary with firebase_id_token
+        db: Database session
+
+    Returns:
+        access_token: Short-lived token (15 min) - stored in memory only
+        refresh_token: Longer-lived token for localStorage
+        
+    Raises:
+        HTTPException: If token is invalid or user not found
+    """
+    try:
+        firebase_id_token = request.get('firebase_id_token')
+        
+        if not firebase_id_token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Firebase ID token is required"
+            )
+        
+        # Verify the Firebase token
+        decoded_token = firebase_auth.verify_id_token(firebase_id_token)
+        email = decoded_token.get('email')
+        
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email not found in token"
+            )
+        
+        # Check if email is verified in Firebase
+        firebase_user = firebase_auth.get_user_by_email(email)
+        
+        if not firebase_user.email_verified:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email not verified"
+            )
+        
+        logger.info(f"Email verified for user: {email}")
+        
+        # Get user from PostgreSQL
+        user = await UserCRUD.get_by_email(db, email)
+        
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Generate both access and refresh tokens (matching existing auth)
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        refresh_token_expires = timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+        
+        access_token = create_access_token(
+            data={"sub": str(user.id), "email": user.email},
+            expires_delta=access_token_expires
+        )
+        refresh_token = create_refresh_token(
+            data={"sub": str(user.id), "email": user.email},
+            expires_delta=refresh_token_expires
+        )
+        
+        logger.info(f"Auto-login successful for verified user: {email}")
+        
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+            "email": email,
+            "message": "Auto-login successful"
+        }
+        
+    except firebase_auth.InvalidIdTokenError:
+        logger.error("Invalid Firebase token in verify_and_login")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Firebase token"
+        )
+    except firebase_auth.ExpiredIdTokenError:
+        logger.error("Expired Firebase token in verify_and_login")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Firebase token has expired"
+        )
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.exception(f"Auto-login error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Auto-login failed"
+        )
+
+
+@router.post("/resend-verification")
+async def resend_verification(
+    request: PasswordResetRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Resend email verification link.
+    Allows users to request another verification email if they didn't receive it.
+    
+    Args:
+        request: Password reset request with email
+        db: Database session
+        
+    Returns:
+        Success message
+        
+    Note:
+        Returns generic message to prevent email enumeration.
+    """
+    email = request.email.lower().strip()
+    
+    try:
+        # Check if user exists in PostgreSQL
+        user = await UserCRUD.get_by_email(db, email)
+        
+        generic_message = "If an account exists for that email, a verification email has been sent."
+        
+        if not user:
+            logger.info(f"Verification resend attempted for non-existent email: {email}")
+            return {"message": generic_message}
+        
+        # Check if user exists in Firebase
+        try:
+            firebase_user = firebase_auth.get_user_by_email(email)
+            
+            if firebase_user.email_verified:
+                logger.info(f"Email already verified for: {email}")
+                return {"message": "Email is already verified"}
+        except firebase_auth.UserNotFoundError:
+            # Create Firebase user if doesn't exist
+            firebase_user = firebase_auth.create_user(
+                email=email,
+                email_verified=False
+            )
+            logger.info(f"Created Firebase user for verification: {email}")
+        
+        # Send verification email via Firebase REST API
+        FIREBASE_WEB_API_KEY = os.getenv("FIREBASE_WEB_API_KEY")
+
+        if not FIREBASE_WEB_API_KEY:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Email service not configured"
+            )
+
+        url = f"https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key={FIREBASE_WEB_API_KEY}"
+        payload = {
+            "requestType": "VERIFY_EMAIL",
+            "email": email
+        }
+
+        response = requests.post(url, json=payload)
+
+        if response.status_code == 200:
+            logger.info(f"✅ Verification email sent to {email}")
+            return {"message": generic_message, "success": True}
+        else:
+            logger.error(f"❌ Failed to send verification email: {response.status_code}")
+            logger.error(f"Response: {response.text}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to send verification email"
+            )
+                
+    except firebase_auth.FirebaseError as e:
+        logger.error(f"Firebase error in resend_verification: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred. Please try again later."
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error in resend_verification: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error sending email"
         )

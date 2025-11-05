@@ -38,7 +38,8 @@ class UserCRUD:
             email=user_create.email,
             hashed_password=hashed_password,
             name=user_create.name,
-            role=user_create.role
+            role=user_create.role,
+            auth_provider="email"  # Explicitly set as email/password user
         )
         
         try:
@@ -57,7 +58,8 @@ class UserCRUD:
             email=email,
             name=name,
             hashed_password=None,  # OAuth users don't have passwords
-            role="user"
+            role="user",
+            auth_provider="google"  # Mark as Google OAuth user
         )
         
         try:
@@ -123,3 +125,32 @@ class UserCRUD:
         await db.delete(user)
         await db.commit()
         return True
+
+    @staticmethod
+    async def upgrade_to_oauth(db: AsyncSession, user: User) -> User:
+        """
+        Upgrade user's auth_provider from 'email' to 'google'.
+        Called when an email/password user signs in via Google OAuth.
+        
+        This represents an "account upgrade" where:
+        - User originally registered with email/password
+        - User later signs in with Google using the same email
+        - Google has verified the email, so we trust it
+        - User now has both login options available
+        - Mark as 'google' to skip email verification checks
+        
+        Args:
+            db: Database session
+            user: User to upgrade
+            
+        Returns:
+            Updated user
+        """
+        if user.auth_provider == 'google':
+            # Already a Google user, no upgrade needed
+            return user
+            
+        user.auth_provider = 'google'
+        await db.commit()
+        await db.refresh(user)
+        return user
