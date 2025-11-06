@@ -75,6 +75,7 @@ user = query("SELECT * FROM users WHERE email = ? AND password = ?")
 - Customize email template (optional)
 
 - **Action URL will be set later when frontend reset page is ready**
+- **Firebase uses **ONE action URL** for all email actions (password reset, email verification, etc.). The URL receives different `mode` parameters to distinguish actions.**
 
 ---
 
@@ -473,146 +474,451 @@ export default ForgotPassword;
 
 ---
 
-### **Step 3.4: Reset Password Component**
-- Create: `src/components/ResetPassword.jsx`
-```javascript
-import React, { useState, useEffect } from 'react';
-import { auth } from '../firebase';
-import { confirmPasswordReset, verifyPasswordResetCode, signInWithEmailAndPassword } from 'firebase/auth';
-import axios from 'axios';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+### **Step 3.4: Create Unified Auth Action Handler**
 
-const ResetPassword = () => {
+**Create: `src/components/AuthAction.jsx`**
+
+- This single component handles ALL Firebase email actions (password reset, email verification, etc.)
+
+```javascript
+import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { auth } from '../firebase';
+import { 
+  confirmPasswordReset, 
+  verifyPasswordResetCode, 
+  applyActionCode,
+  signInWithEmailAndPassword 
+} from 'firebase/auth';
+import axios from 'axios';
+import AuthLayout from '../components/Layout/AuthLayout.jsx';
+import authStore from '../stores/authStore';
+
+export default function AuthAction() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   
+  // Common states
+  const [loading, setLoading] = useState(false);
+  const [verifying, setVerifying] = useState(true);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+  
+  // Password reset specific states
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
   const [email, setEmail] = useState('');
-  const [codeVerified, setCodeVerified] = useState(false);
-
-  const oobCode = searchParams.get('oobCode'); // Firebase sends this in the URL
+  
+  // Get parameters from URL
+  const mode = searchParams.get('mode');
+  const oobCode = searchParams.get('oobCode');
+  const apiBase = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 
   useEffect(() => {
-    // Verify the reset code when component mounts  
-    if (oobCode) {
-      verifyPasswordResetCode(auth, oobCode)
-        .then((email) => {
-          setEmail(email);
-          setCodeVerified(true);
-        })
-        .catch((error) => {
-          setError('Invalid or expired reset link');
-          console.error(error);
-        });
-    } else {
-      setError('No reset code provided');
+    // Validate parameters
+    if (!mode || !oobCode) {
+      setError('Invalid action link. Please check your email and try again.');
+      setVerifying(false);
+      return;
     }
-  }, [oobCode]);
 
-  const handleResetPassword = async (e) => {
+    // Route to appropriate handler based on mode
+    switch (mode) {
+      case 'resetPassword':
+        handlePasswordResetVerification();
+        break;
+      case 'verifyEmail':
+        handleEmailVerification();
+        break;
+      case 'recoverEmail':
+        setError('Email recovery is not yet supported. Please contact support.');
+        setVerifying(false);
+        break;
+      default:
+        setError(`Unknown action type: ${mode}`);
+        setVerifying(false);
+    }
+  }, [mode, oobCode]);
+
+  // ========== PASSWORD RESET HANDLERS ==========
+  
+  const handlePasswordResetVerification = async () => {
+    try {
+      const userEmail = await verifyPasswordResetCode(auth, oobCode);
+      setEmail(userEmail);
+      setVerifying(false);
+    } catch (error) {
+      console.error('Password reset verification error:', error);
+      
+      // Handle specific Firebase errors
+      if (error.code === 'auth/invalid-action-code') {
+        setError('This password reset link is invalid or has already been used.');
+      } else if (error.code === 'auth/expired-action-code') {
+        setError('This password reset link has expired. Please request a new one.');
+      } else {
+        setError('Invalid or expired password reset link. Please request a new one.');
+      }
+      setVerifying(false);
+    }
+  };
+
+  const handlePasswordReset = async (e) => {
     e.preventDefault();
+    setError('');
     
+    // Validation
     if (newPassword !== confirmPassword) {
       setError('Passwords do not match');
       return;
     }
 
-    if (newPassword.length < 6) {
-      setError('Password must be at least 6 characters');
+    if (newPassword.length < 8) {
+      setError('Password must be at least 8 characters');
       return;
     }
 
     setLoading(true);
-    setError('');
 
     try {
       // Step 1: Reset password in Firebase
       await confirmPasswordReset(auth, oobCode, newPassword);
+      console.log('Password reset in Firebase successful');
       
       // Step 2: Sign in to get Firebase ID token
       const userCredential = await signInWithEmailAndPassword(auth, email, newPassword);
       const idToken = await userCredential.user.getIdToken();
+      console.log('Got Firebase ID token');
       
-      // Step 3: Send plain password to backend (will be hashed there)
-      await axios.post('http://localhost:8000/sync-password', {
+      // Step 3: Sync with PostgreSQL
+      await axios.post(`${apiBase}/api/auth/sync-password`, {
         firebase_id_token: idToken,
-        new_password: newPassword  // Backend will hash this
-    });
+        new_password: newPassword
+      });
+      console.log('Password synced to PostgreSQL');
 
-      alert('Password reset successful! You can now log in with your new password.');
-      navigate('/login');
+      setSuccess(true);
+      
+      // Navigate to login after success
+      setTimeout(() => {
+        navigate('/login', { 
+          state: { 
+            message: 'Password reset successful! You can now log in with your new password.',
+            type: 'success'
+          } 
+        });
+      }, 2000);
       
     } catch (err) {
       console.error('Error resetting password:', err);
-      setError('Failed to reset password. Please try again.');
-    } finally {
+      
+      // Handle specific errors
+      if (err.response?.status === 401) {
+        setError('Authentication failed. Please try resetting your password again.');
+      } else if (err.response?.status === 404) {
+        setError('User account not found. Please contact support.');
+      } else if (err.response?.data?.detail) {
+        setError(err.response.data.detail);
+      } else if (err.code === 'auth/weak-password') {
+        setError('Password is too weak. Please use a stronger password.');
+      } else if (err.code === 'auth/invalid-action-code') {
+        setError('This reset link has already been used. Please request a new one.');
+      } else {
+        setError('Failed to reset password. Please try again or request a new reset link.');
+      }
       setLoading(false);
     }
   };
 
-  if (!codeVerified) {
+  // ========== EMAIL VERIFICATION HANDLERS ==========
+
+  const handleEmailVerification = async () => {
+    try {
+      // Apply the email verification code
+      await applyActionCode(auth, oobCode);
+      setSuccess(true);
+      
+      // Auto-login after verification
+      const user = auth.currentUser;
+      if (user) {
+        try {
+          // Get Firebase ID token
+          const idToken = await user.getIdToken();
+          
+          // Call backend to auto-login
+          const response = await axios.post(
+            `${apiBase}/api/auth/verify-and-login`,
+            { firebase_id_token: idToken }
+          );
+          
+          // Store tokens using auth store
+          const { access_token, refresh_token } = response.data;
+          
+          if (access_token && refresh_token) {
+            authStore.setTokens({
+              accessToken: access_token,
+              refreshToken: refresh_token
+            });
+            
+            setVerifying(false);
+            
+            // Navigate to chat page
+            setTimeout(() => {
+              navigate('/chat', { 
+                replace: true,
+                state: { 
+                  autoLogin: true,
+                  message: 'Email verified successfully!'
+                }
+              });
+            }, 2000);
+          } else {
+            throw new Error('Invalid response from server');
+          }
+          
+        } catch (error) {
+          console.error('Auto-login failed:', error);
+          setError('Verification successful, but auto-login failed. Please login manually.');
+          setVerifying(false);
+          setTimeout(() => navigate('/login'), 3000);
+        }
+      } else {
+        setError('Verification successful! Please login to continue.');
+        setVerifying(false);
+        setTimeout(() => navigate('/login'), 2000);
+      }
+    } catch (error) {
+      console.error('Email verification error:', error);
+      
+      // Provide user-friendly error messages
+      if (error.code === 'auth/invalid-action-code') {
+        setError('Verification link is invalid or has already been used.');
+      } else if (error.code === 'auth/expired-action-code') {
+        setError('Verification link has expired. Please request a new one.');
+      } else {
+        setError('Verification failed. Link may be expired or invalid.');
+      }
+      
+      setVerifying(false);
+    }
+  };
+
+  // ========== RENDER LOGIC ==========
+
+  // Loading state while verifying code
+  if (verifying) {
     return (
-      <div className="reset-password-container">
-        <p>{error || 'Verifying reset code...'}</p>
-      </div>
+      <AuthLayout>
+        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow p-6">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+            <p className="text-slate-600 dark:text-slate-400">
+              {mode === 'resetPassword' ? 'Verifying reset code...' : 'Verifying your email...'}
+            </p>
+          </div>
+        </div>
+      </AuthLayout>
     );
   }
 
-  return (
-    <div className="reset-password-container">
-      <h2>Reset Password</h2>
-      <p>Enter your new password for {email}</p>
-      
-      <form onSubmit={handleResetPassword}>
-        <input
-          type="password"
-          placeholder="New Password"
-          value={newPassword}
-          onChange={(e) => setNewPassword(e.target.value)}
-          required
-          disabled={loading}
-          minLength={6}
-        />
-        
-        <input
-          type="password"
-          placeholder="Confirm Password"
-          value={confirmPassword}
-          onChange={(e) => setConfirmPassword(e.target.value)}
-          required
-          disabled={loading}
-          minLength={6}
-        />
-        
-        <button type="submit" disabled={loading}>
-          {loading ? 'Resetting...' : 'Reset Password'}
-        </button>
-      </form>
+  // Error state - verification failed
+  if (error && !success) {
+    return (
+      <AuthLayout>
+        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow p-6">
+          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 mb-6 text-center">
+            {mode === 'resetPassword' ? 'Reset Link Invalid' : 'Verification Failed'}
+          </h1>
+          <div className="rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-4 mb-6">
+            <div className="text-center mb-3">
+              <span className="text-4xl">❌</span>
+            </div>
+            <p className="text-sm text-red-800 dark:text-red-200 text-center">{error}</p>
+          </div>
+          <div className="space-y-4">
+            {mode === 'resetPassword' && (
+              <button
+                onClick={() => navigate('/forgot-password')}
+                className="w-full py-2 px-4 rounded-md bg-slate-900 dark:bg-slate-800 text-white font-semibold hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                Request New Reset Link
+              </button>
+            )}
+            <button
+              onClick={() => navigate('/login')}
+              className="w-full py-2 px-4 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              Back to Login
+            </button>
+          </div>
+        </div>
+      </AuthLayout>
+    );
+  }
 
-      {error && <p className="error-message">{error}</p>}
-    </div>
-  );
-};
+  // ========== EMAIL VERIFICATION SUCCESS ==========
+  if (mode === 'verifyEmail' && success) {
+    return (
+      <AuthLayout>
+        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow p-6">
+          <div className="text-center">
+            <div className="text-6xl mb-4">✅</div>
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mb-2">
+              Email Verified!
+            </h2>
+            <p className="text-slate-600 dark:text-slate-400 mb-2">
+              Your email has been successfully verified.
+            </p>
+            <p className="text-sm text-slate-500 dark:text-slate-500">
+              Logging you in automatically...
+            </p>
+          </div>
+        </div>
+      </AuthLayout>
+    );
+  }
 
-export default ResetPassword;
+  // ========== PASSWORD RESET SUCCESS ==========
+  if (mode === 'resetPassword' && success) {
+    return (
+      <AuthLayout>
+        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow p-6">
+          <div className="text-center">
+            <div className="text-6xl mb-4">✅</div>
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mb-2">
+              Password Reset Successful!
+            </h2>
+            <p className="text-slate-600 dark:text-slate-400 mb-2">
+              You can now log in with your new password.
+            </p>
+            <p className="text-sm text-slate-500 dark:text-slate-500">
+              Redirecting to login...
+            </p>
+          </div>
+        </div>
+      </AuthLayout>
+    );
+  }
+
+  // ========== PASSWORD RESET FORM ==========
+  if (mode === 'resetPassword') {
+    return (
+      <AuthLayout>
+        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow p-6 w-[500px] sm:w-[440px]">
+          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 mb-9 text-center">
+            Reset Password
+          </h1>
+          <p className="text-sm text-slate-600 dark:text-slate-400 mb-6 text-center">
+            Enter your new password for <span className="font-medium text-slate-900 dark:text-slate-100">{email}</span>
+          </p>
+
+          <form onSubmit={handlePasswordReset} className="space-y-5">
+            <label className="block" htmlFor="new-password">
+              <span className="block text-sm text-slate-700 dark:text-slate-300">New Password</span>
+              <input
+                id="new-password"
+                type="password"
+                required
+                minLength={8}
+                className="mt-1 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-slate-100"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                disabled={loading}
+                placeholder="Enter new password (min 8 characters)"
+              />
+            </label>
+
+            <label className="block" htmlFor="confirm-password">
+              <span className="block text-sm text-slate-700 dark:text-slate-300">Confirm Password</span>
+              <input
+                id="confirm-password"
+                type="password"
+                required
+                minLength={8}
+                className="mt-1 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-slate-100"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                disabled={loading}
+                placeholder="Confirm your new password"
+              />
+            </label>
+
+            {error && (
+              <div className="rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">
+                <p className="text-sm text-red-800 dark:text-red-200">{error}</p>
+              </div>
+            )}
+
+            {loading && !error && (
+              <div className="rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-4">
+                <p className="text-sm text-blue-800 dark:text-blue-200">
+                  Resetting your password...
+                </p>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              className="mt-2 w-full py-2 px-4 rounded-md bg-slate-900 dark:bg-slate-800 text-white font-semibold hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={loading}
+            >
+              {loading ? 'Resetting Password...' : 'Reset Password'}
+            </button>
+          </form>
+
+          <div className="mt-5 text-center">
+            <button
+              onClick={() => navigate('/login')}
+              className="text-indigo-600 dark:text-indigo-400 hover:underline text-sm"
+              disabled={loading}
+            >
+              Back to Login
+            </button>
+          </div>
+
+          <div className="mt-4 text-center text-xs text-slate-500 dark:text-slate-400">
+            <p>Make sure your password is at least 8 characters long.</p>
+          </div>
+        </div>
+      </AuthLayout>
+    );
+  }
+
+  // Fallback
+  return null;
+}
 ```
+**Why this approach is better:**
+- ✅ Single component handles all Firebase email actions
+- ✅ Automatically routes based on `mode` parameter
+- ✅ Matches Firebase's design (one action URL)
+- ✅ Easier to maintain (one file instead of multiple)
+- ✅ Can easily add new actions (email change, etc.)
+
 
 ---
 
+
 ### **Step 3.5: Configure Action URL in Firebase**
-- Go to Firebase Console → Authentication → Templates
-- Edit: Password reset template
 
-Set Action URL:
+- Firebase uses **ONE action URL** for all email actions (password reset, email verification, etc.). The URL receives different `mode` parameters to distinguish actions.
+
+**Set the unified action URL:**
+
+1. Go to Firebase Console → Authentication → Templates → Password reset
+2. Set Action URL to:
 ```bash
- # Replace with your real frontend URL
-http://localhost:5173/reset-password
-
+   http://localhost:5173/auth-action
 ```
-- Save ✅
+3. Click edit on **Email address verification** template
+4. Set Action URL to:
+```bash
+   http://localhost:5173/auth-action
+```
+5. Save ✅
+
+**Note:** Both templates should point to the **same URL** (`/auth-action`). Firebase adds query parameters to distinguish actions:
+- Password Reset: `?mode=resetPassword&oobCode=...`
+- Email Verification: `?mode=verifyEmail&oobCode=...`
 
 ---
 
@@ -621,7 +927,7 @@ http://localhost:5173/reset-password
 ```javascript
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import ForgotPassword from './components/ForgotPassword';
-import ResetPassword from './components/ResetPassword';
+import AuthAction from './components/AuthAction';
 
 function App() {
   return (
@@ -629,7 +935,9 @@ function App() {
       <Routes>
         {/* Your existing routes */}
         <Route path="/forgot-password" element={<ForgotPassword />} />
-        <Route path="/reset-password" element={<ResetPassword />} />
+        
+        {/* Unified handler for all Firebase email actions */}
+        <Route path="/auth-action" element={<AuthAction />} />
       </Routes>
     </BrowserRouter>
   );
@@ -879,117 +1187,7 @@ def create_access_token(user):
 
 ### **Step 5.3: Frontend - Email Verification Handler**
 
-**Create: `src/components/VerifyEmail.jsx`**
-```javascript
-import React, { useEffect, useState } from 'react';
-import { auth } from '../firebase';
-import { applyActionCode } from 'firebase/auth';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import axios from 'axios';
-
-const VerifyEmail = () => {
-  const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
-  
-  const [verifying, setVerifying] = useState(true);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
-
-  const oobCode = searchParams.get('oobCode');
-
-  useEffect(() => {
-    if (!oobCode) {
-      setError('Invalid verification link');
-      setVerifying(false);
-      return;
-    }
-
-    // Apply the email verification code
-    applyActionCode(auth, oobCode)
-      .then(async () => {
-        setSuccess(true);
-        
-        // Auto-login: Get user email from Firebase
-        const user = auth.currentUser;
-        if (user) {
-          try {
-            // Get Firebase ID token
-            const idToken = await user.getIdToken();
-            
-            // Call your backend to auto-login
-            const response = await axios.post(
-              `${import.meta.env.VITE_API_BASE}/verify-and-login`,
-              { firebase_id_token: idToken }
-            );
-            
-            // Store tokens following your existing auth pattern:
-            // - Access token: Keep in memory (via state/context)
-            // - Refresh token: Store in localStorage
-
-            // Store refresh token in localStorage (if returned)
-            if (response.data.refresh_token) {
-            localStorage.setItem('refresh_token', response.data.refresh_token);
-            }
-
-            // Pass access token via navigation state (stays in memory)
-            navigate('/chatpage', { 
-            state: { 
-                access_token: response.data.access_token,
-                autoLogin: true 
-            }
-            });
-
-            // OR if you have an auth context that handles token storage:
-            // authContext.login(response.data.access_token, response.data.refresh_token);
-            // navigate('/chatpage');
-            
-          } catch (error) {
-            console.error('Auto-login failed:', error);
-            setError('Verification successful, but auto-login failed. Please login manually.');
-            setTimeout(() => navigate('/login'), 3000);
-          }
-        }
-        
-        setVerifying(false);
-      })
-
-      .catch((error) => {
-        console.error('Verification error:', error);
-        setError('Verification failed. Link may be expired or invalid.');
-        setVerifying(false);
-      });
-  }, [oobCode, navigate]);
-
-  if (verifying) {
-    return (
-      <div className="verify-email-container">
-        <h2>Verifying your email...</h2>
-        <p>Please wait...</p>
-      </div>
-    );
-  }
-
-  if (success) {
-    return (
-      <div className="verify-email-container">
-        <h2>✅ Email Verified!</h2>
-        <p>Your email has been successfully verified.</p>
-        <p>Logging you in automatically...</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="verify-email-container">
-      <h2>❌ Verification Failed</h2>
-      <p>{error}</p>
-      <a href="/login">Go to Login</a>
-    </div>
-  );
-};
-
-export default VerifyEmail;
-```
+**Already handled in Step 3.4: Create Unified Auth Action Handler**
 
 **Security Note (Token Storage):** 
 Your app already follows security best practices:
@@ -1011,41 +1209,33 @@ After email verification, the access token should be passed to your existing aut
 
 
 ### **Step 5.4: Update Routes**
-
-**In `App.js`, add the verify-email route:**
 ```javascript
-import VerifyEmail from './components/VerifyEmail';
-
-function App() {
-  return (
-    <BrowserRouter>
-      <Routes>
-        {/* Existing routes */}
-        <Route path="/forgot-password" element={<ForgotPassword />} />
-        <Route path="/reset-password" element={<ResetPassword />} />
-        
-        {/* Add this new route */}
-        <Route path="/verify-email" element={<VerifyEmail />} />
-      </Routes>
-    </BrowserRouter>
-  );
-}
+// No changes needed - already updated in Step 3.6
+// The /auth-action route handles both password-reset AND email-verification
 ```
+**Note:** Routes already configured in Step 3.6. The `/auth-action` route handles both:
+- Password reset (`?mode=resetPassword`)
+- Email verification (`?mode=verifyEmail`)
+
+No additional routes needed for email verification.
 
 ---
 
+
 ### **Step 5.5: Configure Action URL in Firebase**
 
-**Set the verification action URL:**
+- **Note:** Action URL already configured in Step 3.5. 
 
-1. Go to Firebase Console → Authentication → Templates
-2. Click edit on **Email address verification** template
-3. Set Action URL to:
+- Both password reset AND email verification use the same URL:
+```bash
+http://localhost:5173/auth-action
 ```
-   http://localhost:5173/verify-email
-```
-   (or your production URL: `https://yourdomain.com/verify-email`)
-4. Save ✅
+
+- Firebase automatically adds the correct `mode` parameter:
+  - Password reset: `?mode=resetPassword&oobCode=...`
+  - Email verification: `?mode=verifyEmail&oobCode=...`
+
+- No additional configuration needed.
 
 ---
 
