@@ -11,13 +11,23 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [showResendLink, setShowResendLink] = useState(false);
 
-  // Check for success message from password reset
+  // Check for success message from password reset or registration
   useEffect(() => {
     if (location.state?.message && location.state?.type === 'success') {
       setSuccessMessage(location.state.message);
-      // Clear the message after 5 seconds
-      const timer = setTimeout(() => setSuccessMessage(''), 5000);
+      
+      // Show resend link if coming from registration
+      if (location.state?.showResendLink) {
+        setShowResendLink(true);
+      }
+      
+      // Clear the message after 8 seconds
+      const timer = setTimeout(() => {
+        setSuccessMessage('');
+        setShowResendLink(false);
+      }, 8000);
       return () => clearTimeout(timer);
     }
   }, [location]);
@@ -26,11 +36,29 @@ export default function Login() {
     e.preventDefault();
     setError('');
     setSuccessMessage('');
+    setShowResendLink(false);
     setLoading(true);
     try {
       await login({ email, password });
     } catch (err) {
-      setError('Login failed.');
+      console.error('Login error:', err);
+      
+      // Check if error is due to unverified email
+      // Look for either status code 403 or keywords in the error message
+      const errorMsg = err.message || '';
+      const isUnverifiedError = 
+        errorMsg.includes('Email not verified') || 
+        errorMsg.includes('verification email') ||
+        errorMsg.includes('verify your account');
+      
+      if (isUnverifiedError) {
+        setSuccessMessage('A verification email has been sent to your email. Please verify your account to login.');
+        setShowResendLink(true);
+        setError('');
+      } else {
+        setError(errorMsg || 'Login failed.');
+        setShowResendLink(false);
+      }
     } finally {
       setLoading(false);
     }
@@ -68,6 +96,7 @@ export default function Login() {
               id="login-email"
               type="email"
               required
+              autoComplete="email"
               className="mt-1 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-slate-100"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -79,15 +108,20 @@ export default function Login() {
               id="login-password"
               type="password"
               required
+              autoComplete="current-password"
               className="mt-1 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-slate-100"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
           </label>
           <div className="flex justify-between items-center">
-            <a href="/resend-verification" className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline">
-              Resend verification email
-            </a>
+            {showResendLink ? (
+              <a href="/resend-verification" className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline">
+                Resend verification email
+              </a>
+            ) : (
+              <span></span>
+            )}
             <a href="/forgot-password" className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline">
               Forgot password?
             </a>

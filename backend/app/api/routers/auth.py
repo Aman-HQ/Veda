@@ -271,11 +271,15 @@ async def login(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Email not verified. A verification email has been sent."
                 )
+            except HTTPException:
+                # Re-raise the 403 exception above
+                raise
             except Exception as e:
                 logger.error(f"Failed to create Firebase user for legacy account: {str(e)}")
+                # Still return 403 even if Firebase user creation fails
                 raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="An error occurred. Please contact support."
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Email not verified. Please check your email for verification link."
                 )
     else:
         # Google OAuth user - skip verification check

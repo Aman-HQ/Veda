@@ -23,9 +23,10 @@ export default function useAuth() {
       return { accessToken: access_token, refreshToken: refresh_token };
     } catch (error) {
       console.error('Login failed:', error);
-      throw new Error(
-        error.response?.data?.detail || 'Login failed. Please check your credentials.'
-      );
+      
+      // Pass the specific error message from backend
+      const errorMessage = error.response?.data?.detail || 'Login failed. Please check your credentials.';
+      throw new Error(errorMessage);
     }
   }, [navigate]);
 
@@ -38,12 +39,13 @@ export default function useAuth() {
         password
       });
       
-      // Navigate to login with success message
+      // Navigate to login with success message AND show resend link
       navigate('/login', { 
         replace: true,
         state: { 
-          message: 'Registration successful! Please check your email to verify your account before logging in.',
-          type: 'success'
+          message: 'Registration successful! A verification email has been sent to your email. Please verify your account.',
+          type: 'success',
+          showResendLink: true
         }
       });
       
