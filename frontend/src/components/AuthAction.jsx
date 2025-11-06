@@ -5,6 +5,7 @@ import {
   confirmPasswordReset, 
   verifyPasswordResetCode, 
   applyActionCode,
+  checkActionCode,
   signInWithEmailAndPassword 
 } from 'firebase/auth';
 import axios from 'axios';
@@ -150,61 +151,89 @@ export default function AuthAction() {
 
   const handleEmailVerification = async () => {
     try {
-      // Apply the email verification code
-      await applyActionCode(auth, oobCode);
-      setSuccess(true);
+      // Step 1: Get email from the action code BEFORE applying it
+      console.log('🔍 Checking email verification code...');
+      const info = await checkActionCode(auth, oobCode);
+      const userEmail = info.data.email;
+      console.log('📧 Email to verify:', userEmail);
       
-      // Auto-login after verification
-      const user = auth.currentUser;
-      if (user) {
-        try {
-          // Get Firebase ID token
-          const idToken = await user.getIdToken();
-          
-          // Call backend to auto-login
-          const response = await axios.post(
-            `${apiBase}/api/auth/verify-and-login`,
-            { firebase_id_token: idToken }
-          );
-          
-          // Store tokens using auth store
-          const { access_token, refresh_token } = response.data;
-          
-          if (access_token && refresh_token) {
-            authStore.setTokens({
-              accessToken: access_token,
-              refreshToken: refresh_token
-            });
-            
-            setVerifying(false);
-            
-            // Navigate to chat page
-            setTimeout(() => {
-              navigate('/chat', { 
-                replace: true,
-                state: { 
-                  autoLogin: true,
-                  message: 'Email verified successfully!'
-                }
-              });
-            }, 2000);
-          } else {
-            throw new Error('Invalid response from server');
-          }
-          
-        } catch (error) {
-          console.error('Auto-login failed:', error);
-          setError('Verification successful, but auto-login failed. Please login manually.');
-          setVerifying(false);
-          setTimeout(() => navigate('/login'), 3000);
+      // Step 2: Apply the email verification code (this marks email as verified in Firebase)
+      try {
+      await applyActionCode(auth, oobCode);
+      console.log('✅ Email verification code applied successfully');
+      } catch (applyError) {
+        // If code was already used, that's okay - email is already verified
+        if (applyError.code === 'auth/invalid-action-code') {
+          console.log('ℹ️ Verification code already used (email already verified)');
+        } else {
+          throw applyError; // Re-throw other errors
         }
-      } else {
-        setError('Verification successful! Please login to continue.');
-        setVerifying(false);
-        setTimeout(() => navigate('/login'), 2000);
       }
+      
+      setSuccess(true);
+      setVerifying(false);
+      
+      // Step 3: Call backend to create session and auto-login
+      try {
+        console.log('🔐 Requesting auto-login from backend...');
+        
+        // Call backend with just the email - backend will verify it's now verified in Firebase
+        const response = await axios.post(
+          `${apiBase}/api/auth/verify-email-and-login`, 
+          { email: userEmail },
+          {
+            headers: {
+              'Content-Type': 'application/json'
+            }
+        });
+        
+        console.log('✅ Backend response:', response.data);
+        
+        // Store tokens using auth store
+        const { access_token, refresh_token, token_type } = response.data;
+        
+        if (access_token && refresh_token) {
+          authStore.setTokens({
+            accessToken: access_token,
+            refreshToken: refresh_token
+          });
+          
+          console.log('✅ Tokens stored, redirecting to chat...');
+          
+          // Navigate to chat page
+          setTimeout(() => {
+            navigate('/chat', { 
+              replace: true,
+              state: {
+                message: 'Email verified successfully! Welcome!',
+                type: 'success'
+              }
+            });
+          }, 2000);
+        } else {
+          throw new Error('Invalid response from server');
+        }
+        
+      } catch (error) {
+        console.error('❌ Auto-login failed:', error);
+        console.error('Error details:', error.response?.data || error.message);
+        
+        // Better error handling - show specific error if available
+      const errorMessage = error.response?.data?.detail || 'Auto-login failed. Please login manually.';
+      
+        // Fallback: Show success and redirect to login
+        setTimeout(() => {
+          navigate('/login', {
+            state: {
+              message: `Email verified! ${errorMessage}`,
+              type: 'warning'
+            }
+          });
+        }, 3000);
+      }
+      
     } catch (error) {
-      console.error('Email verification error:', error);
+      console.error('❌ Email verification error:', error);
       
       // Provide user-friendly error messages
       if (error.code === 'auth/invalid-action-code') {

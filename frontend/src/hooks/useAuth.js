@@ -31,27 +31,23 @@ export default function useAuth() {
 
   const register = useCallback(async ({ name, email, password }) => {
     try {
-      // First, register the user
-      await api.post('/api/auth/register', {
+      // Register the user (DON'T auto-login - user needs to verify email first)
+      const response = await api.post('/api/auth/register', {
         name,
         email,
         password
       });
       
-      // Then automatically log them in
-      const response = await api.post('/api/auth/login', {
-        email,
-        password
+      // Navigate to login with success message
+      navigate('/login', { 
+        replace: true,
+        state: { 
+          message: 'Registration successful! Please check your email to verify your account before logging in.',
+          type: 'success'
+        }
       });
       
-      const { access_token, refresh_token } = response.data;
-      authStore.setTokens({ 
-        accessToken: access_token, 
-        refreshToken: refresh_token 
-      });
-      
-      navigate('/chat', { replace: true });
-      return { accessToken: access_token, refreshToken: refresh_token };
+      return response.data;
     } catch (error) {
       console.error('Registration failed:', error);
       throw new Error(

@@ -84,7 +84,10 @@ export default function Login() {
               onChange={(e) => setPassword(e.target.value)}
             />
           </label>
-          <div className="flex justify-end">
+          <div className="flex justify-between items-center">
+            <a href="/resend-verification" className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline">
+              Resend verification email
+            </a>
             <a href="/forgot-password" className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline">
               Forgot password?
             </a>
