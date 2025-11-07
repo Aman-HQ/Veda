@@ -6,7 +6,8 @@ import {
   verifyPasswordResetCode, 
   applyActionCode,
   checkActionCode,
-  signInWithEmailAndPassword 
+  signInWithEmailAndPassword,
+  signInWithCustomToken
 } from 'firebase/auth';
 import axios from 'axios';
 import AuthLayout from '../components/Layout/AuthLayout.jsx';
@@ -158,6 +159,8 @@ export default function AuthAction() {
       console.log('📧 Email to verify:', userEmail);
       
       // Step 2: Apply the email verification code (this marks email as verified in Firebase)
+      let codeAlreadyUsed = false;
+
       try {
       await applyActionCode(auth, oobCode);
       console.log('✅ Email verification code applied successfully');
@@ -165,32 +168,77 @@ export default function AuthAction() {
         // If code was already used, that's okay - email is already verified
         if (applyError.code === 'auth/invalid-action-code') {
           console.log('ℹ️ Verification code already used (email already verified)');
+          
+          // Since we already got the email from checkActionCode above,
+          // we know the code was valid at some point. If it's invalid now,
+          // it's likely already been used. Set flag to skip duplicate processing.
+          codeAlreadyUsed = true;
+          console.log('✅ Assuming email already verified (code already applied)');
         } else {
           throw applyError; // Re-throw other errors
         }
       }
       
+      // If code was already used and we're in React StrictMode, skip the rest
+      if (codeAlreadyUsed) {
+        console.log('⏭️ Skipping duplicate verification attempt (React StrictMode)');
+        setVerifying(false);
+        return;
+      }
+
       setSuccess(true);
-      setVerifying(false);
       
-      // Step 3: Call backend to create session and auto-login
+      // Step 3: Sign in with Firebase to get ID token (CRITICAL STEP)
       try {
-        console.log('🔐 Requesting auto-login from backend...');
+        console.log('🔐 Getting Firebase ID token for verified user...');
+      
+        // CRITICAL: We need to sign in to get an ID token
+        // Since we don't have the user's password, we use the custom token approach
         
-        // Call backend with just the email - backend will verify it's now verified in Firebase
+        // Method 1: If user is already signed in (from applyActionCode)
+        let idToken = null;
+        const currentUser = auth.currentUser;
+        
+        if (currentUser && currentUser.email === userEmail) {
+          // User is signed in, reload to get updated email_verified status
+          await currentUser.reload();
+          idToken = await currentUser.getIdToken(true); // Force refresh
+          console.log('✅ Got ID token from current user');
+        } else {
+          // Method 2: User not signed in - need backend to create custom token
+          console.log('⚠️ User not signed in, requesting custom token from backend...');
+          
+          // Call backend to get custom token
+          const customTokenResponse = await axios.post(
+            `${apiBase}/api/auth/get-custom-token`,
+            { email: userEmail }
+          );
+          
+          const customToken = customTokenResponse.data.custom_token;
+          
+          // Sign in with custom token
+          const userCredential = await signInWithCustomToken(auth, customToken);
+          idToken = await userCredential.user.getIdToken(true);
+          console.log('✅ Got ID token from custom token sign-in');
+        }
+
+        console.log('🔐 Requesting auto-login from backend with ID token...');
+        
+        // Call backend with Firebase ID token
         const response = await axios.post(
-          `${apiBase}/api/auth/verify-email-and-login`, 
-          { email: userEmail },
+          `${apiBase}/api/auth/verify-and-login`, 
+          { firebase_id_token: idToken },
           {
             headers: {
               'Content-Type': 'application/json'
             }
-        });
+          }
+        );
         
         console.log('✅ Backend response:', response.data);
         
         // Store tokens using auth store
-        const { access_token, refresh_token, token_type } = response.data;
+        const { access_token, refresh_token } = response.data;
         
         if (access_token && refresh_token) {
           authStore.setTokens({
@@ -200,6 +248,8 @@ export default function AuthAction() {
           
           console.log('✅ Tokens stored, redirecting to chat...');
           
+          setVerifying(false);
+
           // Navigate to chat page
           setTimeout(() => {
             navigate('/chat', { 
@@ -221,12 +271,15 @@ export default function AuthAction() {
         // Better error handling - show specific error if available
       const errorMessage = error.response?.data?.detail || 'Auto-login failed. Please login manually.';
       
+      setError(`Email verified! ${errorMessage}`);
+      setVerifying(false);
+
         // Fallback: Show success and redirect to login
         setTimeout(() => {
           navigate('/login', {
             state: {
               message: `Email verified! ${errorMessage}`,
-              type: 'warning'
+              type: 'success'
             }
           });
         }, 3000);

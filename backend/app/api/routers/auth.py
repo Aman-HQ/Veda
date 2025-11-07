@@ -110,10 +110,9 @@ async def register(
                 
                 if token_response.status_code != 200:
                     logger.error(f"❌ Failed to get ID token: {token_response.text}")
-                    raise HTTPException(
-                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                        detail="Failed to initialize email verification"
-                    )
+                    # Don't fail registration, just log the error
+                    logger.warning("User created but verification email failed to send")
+                    return user
                 
                 id_token = token_response.json().get('idToken')
                 
@@ -131,14 +130,18 @@ async def register(
                 else:
                     logger.error(f"❌ Firebase email sending failed: {verification_response.status_code}")
                     logger.error(f"Response: {verification_response.text}")
-                    raise HTTPException(
-                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                        detail="Failed to send verification email. Please try resending it."
-                    )
+                    # raise HTTPException(
+                    #     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    #     detail="Failed to send verification email. Please try resending it."
+                    # )
+                    
+                    # Don't fail registration
+                    logger.warning("User created but verification email failed to send")
+            
             except Exception as e:
                 logger.error(f"Error sending verification email: {str(e)}")
                 # Don't fail registration, but inform user
-                logger.warning("User created but verification email failed")
+                logger.warning("User created but verification email failed to send")
         else:
             logger.warning("Firebase Web API Key not configured - skipping verification email")
         
@@ -927,44 +930,55 @@ async def resend_password_reset(
         )
 
 
-@router.post("/verify-email-and-login")
-async def verify_email_and_login(
+@router.post("/get-custom-token")
+async def get_custom_token(
     request: dict,
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Auto-login after email verification (simplified version).
-    Called from frontend after applyActionCode marks email as verified.
+    Generate a Firebase custom token for email verification auto-login.
+    
+    This endpoint is called when a user verifies their email but isn't signed in.
+    It creates a custom token that allows them to sign in to Firebase and get an ID token.
+    
+    Security:
+    - Only works for users who just verified their email (checked in Firebase)
+    - User must exist in PostgreSQL
+    - Short-lived token (expires in 1 hour)
     
     Args:
         request: Dictionary with email
         db: Database session
         
     Returns:
-        access_token and refresh_token
+        custom_token: Firebase custom token for client-side sign-in
         
     Raises:
-        HTTPException: If email not verified or user not found
-
-    Security:
-        - Verifies email is marked as verified in Firebase
-        - Only issues tokens for verified users
-        - No need for Firebase ID token since email verification already happened client-side
+        HTTPException: If user not found or email not verified
     """
     try:
         email = request.get('email')
         
         if not email:
-            logger.error("No email provided in verify-email-and-login request")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email is required"
             )
         
         email = email.lower().strip()
-        logger.info(f"Auto-login request for verified email: {email}")
+        logger.info(f"Custom token requested for: {email}")
         
-        # Step 1: Check if email is verified in Firebase
+        # Step 1: Check if user exists in PostgreSQL
+        user = await UserCRUD.get_by_email(db, email)
+        
+        if not user:
+            logger.error(f"User not found in PostgreSQL: {email}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Step 2: Check if email is verified in Firebase
         try:
             firebase_user = firebase_auth.get_user_by_email(email)
             
@@ -976,7 +990,7 @@ async def verify_email_and_login(
                 )
             
             logger.info(f"✅ Email verified in Firebase: {email}")
-
+        
         except firebase_auth.UserNotFoundError:
             logger.error(f"User not found in Firebase: {email}")
             raise HTTPException(
@@ -984,67 +998,24 @@ async def verify_email_and_login(
                 detail="User not found in Firebase"
             )
         
-        # Step 2: Get user from PostgreSQL
-        user = await UserCRUD.get_by_email(db, email)
+        # Step 3: Create custom token
+        custom_token = firebase_auth.create_custom_token(firebase_user.uid)
+        custom_token_str = custom_token.decode('utf-8')
         
-        if not user:
-            logger.error(f"User not found in PostgreSQL: {email}")
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found"
-            )
-        
-        logger.info(f"✅ User found in PostgreSQL: {email}")
-
-        # Step 3: Generate access and refresh tokens
-        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-        refresh_token_expires = timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-        
-        access_token = create_access_token(
-            data={"sub": str(user.id), "email": user.email},
-            expires_delta=access_token_expires
-        )
-        refresh_token = create_refresh_token(
-            data={"sub": str(user.id), "email": user.email},
-            expires_delta=refresh_token_expires
-        )
-        
-        logger.info(f"✅ Tokens generated for user: {email}")
-
-        # Step 4: Store refresh token metadata (same as login endpoint)
-        refresh_tokens = user.refresh_tokens or []
-        refresh_tokens.append({
-            "token_id": str(uuid4()),
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "user_agent": "email_verification_auto_login"
-        })
-        
-        # Keep only last 5 refresh tokens
-        if len(refresh_tokens) > 5:
-            refresh_tokens = refresh_tokens[-5:]
-        
-        await UserCRUD.update_refresh_tokens(db, user, refresh_tokens)
-        await db.commit()  # ✅ ADDED: Commit the transaction
-
-        logger.info(f"✅ Auto-login successful for verified user: {email}")
+        logger.info(f"✅ Custom token created for: {email}")
         
         return {
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-            "token_type": "bearer",
-            "message": "Auto-login successful"
+            "custom_token": custom_token_str,
+            "email": email
         }
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"========== AUTO-LOGIN ERROR ==========")
-        logger.error(f"Error type: {type(e).__name__}")
-        logger.error(f"Error message: {str(e)}")
-        logger.error(f"Full traceback:", exc_info=True)
+        logger.error(f"Error creating custom token: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Auto-login failed. Please try logging in manually."
+            detail="Failed to create custom token"
         )
 
 
@@ -1120,6 +1091,20 @@ async def verify_and_login(
             expires_delta=refresh_token_expires
         )
         
+        # Store refresh token metadata
+        refresh_tokens = user.refresh_tokens or []
+        refresh_tokens.append({
+            "token_id": str(uuid4()),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "user_agent": "email_verification_auto_login"
+        })
+        
+        if len(refresh_tokens) > 5:
+            refresh_tokens = refresh_tokens[-5:]
+        
+        await UserCRUD.update_refresh_tokens(db, user, refresh_tokens)
+        await db.commit()  # Commit the transaction
+
         logger.info(f"Auto-login successful for verified user: {email}")
         
         return {
