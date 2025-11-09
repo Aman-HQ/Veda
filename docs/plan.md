@@ -67,8 +67,31 @@ services:
     depends_on:
       - backend
 
+  redis:
+    image: redis:7
+    container_name: veda_redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--requirepass", "your_strong_password"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "your_strong_password", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redisinsight:
+    image: redis/redisinsight:2.60.0
+    container_name: veda_redisinsight
+    ports:
+      - "5540:5540"
+    depends_on:
+      - redis
+
 volumes:
   postgres_data:
+  redis_data:
 
 ```
 
@@ -1534,6 +1557,9 @@ jobs:
 - Strict CORS: allow only http://localhost:5173 in dev
 - Validate uploads (size/type) for images; sanitize any rendered HTML
 - Server appends disclaimer to assistant messages
+- For production, set REDIS_PASSWORD and use REDIS_URL=redis://:PASSWORD@redis:6379/0.
+- Restrict Redis to internal network only (do not expose to the public internet).
+
 
 **Cookie & HTTPS Recommendations (for prod)**
 - For web clients, prefer `HttpOnly` cookies for refresh tokens to prevent XSS leaks.

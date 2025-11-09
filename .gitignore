@@ -26,5 +26,10 @@ __pycache__/
 .env.local
 .env.*.local
 
+# .md files
+*.md
+!docs/firebase.md
+!docs/plan.md
+!docs/roadmap.md
 
 

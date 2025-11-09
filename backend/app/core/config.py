@@ -109,6 +109,20 @@ FIREBASE_CREDENTIALS_PATH = os.getenv(
 )
 
 # -------------------------------
+# Redis Configuration
+# -------------------------------
+REDIS_ENABLED = os.getenv("REDIS_ENABLED", "false").lower() == "true"
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_DB = int(os.getenv("REDIS_DB", "0"))
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+REDIS_STREAM_CACHE_TTL = int(os.getenv("REDIS_STREAM_CACHE_TTL", "30"))
+REDIS_CACHE_TTL = int(os.getenv("REDIS_CACHE_TTL", "3600"))
+REDIS_RATE_LIMIT_TTL = int(os.getenv("REDIS_RATE_LIMIT_TTL", "60"))
+REDIS_RATE_LIMIT_MAX_REQUESTS = int(os.getenv("REDIS_RATE_LIMIT_MAX_REQUESTS", "100"))
+
+# -------------------------------
 # Application Settings
 # -------------------------------
 APP_NAME = "Veda Healthcare Chatbot"
