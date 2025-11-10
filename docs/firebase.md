@@ -162,7 +162,7 @@ async def forgot_password(request: ForgotPasswordRequest):
         # logger.info(f"Generated password reset link for: {email}")
         
         # Step 3: Send password reset email using Firebase REST API
-        FIREBASE_WEB_API_KEY ="AIzaSyAtzGoi--CIrt0ronBzo12W32G2qpHe7NA" #Your API key
+        FIREBASE_WEB_API_KEY =" " #Your API key
         
         url = f"https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key={FIREBASE_WEB_API_KEY}"
         
