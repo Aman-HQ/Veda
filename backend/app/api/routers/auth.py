@@ -187,8 +187,10 @@ async def login(
         )
     
     # Check email verification for email/password users only
-    # Skip verification check for Google OAuth users
-    if user.auth_provider == 'email':
+    # Skip verification check for:
+    # 1. Google OAuth users (Google already verifies emails)
+    # 2. Admin users (created via backend scripts, trusted accounts)
+    if user.auth_provider == 'email' and user.role != 'admin':
         try:
             # Check Firebase email verification status
             firebase_user = firebase_auth.get_user_by_email(user.email)
@@ -285,8 +287,11 @@ async def login(
                     detail="Email not verified. Please check your email for verification link."
                 )
     else:
-        # Google OAuth user - skip verification check
-        logger.info(f"Login by Google OAuth user (skipping email verification): {user.email}")
+        # Skip verification check for Google OAuth users or Admin users
+        if user.auth_provider == 'google':
+            logger.info(f"Login by Google OAuth user (skipping email verification): {user.email}")
+        elif user.role == 'admin':
+            logger.info(f"Login by Admin user (skipping email verification): {user.email}")
     
     # Create tokens
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)

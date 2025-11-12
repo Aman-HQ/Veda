@@ -7,7 +7,8 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, desc
+from sqlalchemy import select, func, and_, desc, or_
+from pydantic import BaseModel
 import psutil
 import os
 
@@ -109,6 +110,12 @@ async def get_admin_stats(
         )
         assistant_messages = assistant_messages_result.scalar()
         
+        # Calculate average messages per conversation
+        avg_messages_per_conversation = (
+            round(total_messages / total_conversations, 2) 
+            if total_conversations > 0 else 0
+        )
+        
         # Moderation statistics
         moderation_stats = moderation_service.get_statistics()
         
@@ -130,7 +137,8 @@ async def get_admin_stats(
                 "total_messages": total_messages,
                 "recent_messages": recent_messages,
                 "user_messages_recent": user_messages,
-                "assistant_messages_recent": assistant_messages
+                "assistant_messages_recent": assistant_messages,
+                "avg_messages_per_conversation": avg_messages_per_conversation
             },
             "moderation": moderation_stats,
             "system_health": {
@@ -283,35 +291,117 @@ async def get_admin_metrics(
 
 @router.get("/moderation/stats", response_model=Dict[str, Any])
 async def get_moderation_stats(
-    admin_user: User = Depends(require_admin_role)
+    admin_user: User = Depends(require_admin_role),
+    db: AsyncSession = Depends(get_db)  # ✅ ADD THIS
 ):
-    """
-    Get detailed moderation statistics.
+    """Get detailed moderation statistics.
+    
+    Combines moderation service stats with real-time database counts.
     
     Args:
         admin_user: Current admin user
+        db: Database session
         
     Returns:
-        Detailed moderation statistics and configuration
-    """
+        Detailed moderation statistics and configuration"""
     
     try:
-        stats = moderation_service.get_statistics()
+        # Get base stats from moderation service (your original approach)
+        service_stats = moderation_service.get_statistics()
         health = moderation_service.health_check()
         
+        # ADD: Get real-time database counts
+        today = datetime.utcnow().date()
+        
+        # Count total flagged messages in database
+        total_flagged_result = await db.execute(
+            select(func.count(Message.id))
+            .where(Message.status == "flagged")
+        )
+        total_flagged = total_flagged_result.scalar() or 0
+        
+        # Count unreviewed flagged messages
+        # Simpler approach: count all flagged, then subtract those explicitly marked as reviewed
+        all_flagged_result = await db.execute(
+            select(func.count(Message.id))
+            .where(Message.status == "flagged")
+        )
+        
+        reviewed_result = await db.execute(
+            select(func.count(Message.id))
+            .where(
+                and_(
+                    Message.status == "flagged",
+                    Message.message_metadata.op('->>')('reviewed') == 'true'
+                )
+            )
+        )
+        
+        flagged_unreviewed = (all_flagged_result.scalar() or 0) - (reviewed_result.scalar() or 0)
+        
+        # Count flagged messages today
+        flagged_today_result = await db.execute(
+            select(func.count(Message.id))
+            .where(
+                and_(
+                    Message.status == "flagged",
+                    func.date(Message.created_at) == today
+                )
+            )
+        )
+        flagged_today = flagged_today_result.scalar() or 0
+        
+        # ADD: Extract top flagged keywords from database
+        result = await db.execute(
+            select(Message.message_metadata)
+            .where(Message.status == "flagged")
+            .limit(100)  # Sample last 100 flagged messages
+        )
+        messages_meta = result.scalars().all()
+        
+        keyword_count = {}
+        for meta in messages_meta:
+            if meta and isinstance(meta, dict):
+                keywords = meta.get("flagged_keywords", [])
+                for kw in keywords:
+                    keyword_count[kw] = keyword_count.get(kw, 0) + 1
+        
+        top_keywords = [
+            {"keyword": k, "count": v}
+            for k, v in sorted(keyword_count.items(), key=lambda x: x[1], reverse=True)[:10]
+        ]
+        
+        # COMBINE: Merge service stats with database stats
         detailed_stats = {
-            **stats,
+            # Moderation service stats (from your original code)
+            **service_stats,
+            
+            # Database counts (real-time)
+            "database_counts": {
+                "total_flagged": total_flagged,
+                "flagged_unreviewed": flagged_unreviewed,
+                "flagged_today": flagged_today
+            },
+            
+            # Top keywords from database
+            "top_keywords": top_keywords,
+            
+            # Health and rules (from your original code)
             "health": health,
             "rules_breakdown": {
                 severity: len(keywords) 
                 for severity, keywords in moderation_service.rules.items()
             },
-            "generated_at": datetime.utcnow().isoformat()
+            
+            # Metadata
+            "generated_at": datetime.utcnow().isoformat(),
+            "generated_by": str(admin_user.id)
         }
         
         log_admin_action(
             action="view_moderation_stats",
-            admin_user_id=str(admin_user.id)
+            admin_user_id=str(admin_user.id),
+            details={"total_flagged": total_flagged}
         )
         
         return detailed_stats
@@ -376,15 +466,17 @@ async def reload_moderation_rules(
         ) from e
 
 
-@router.get("/users", response_model=List[Dict[str, Any]])
+@router.get("/users", response_model=Dict[str, Any])
 async def get_users_list(
     limit: int = Query(default=50, ge=1, le=1000, description="Maximum number of users to return"),
     offset: int = Query(default=0, ge=0, description="Number of users to skip"),
+    search: Optional[str] = Query(default=None, description="Search by email or name"),  # ADD THIS
+    role: Optional[str] = Query(default=None, description="Filter by role (admin/user)"), 
     admin_user: User = Depends(require_admin_role),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Get list of users with basic information.
+    Get list of users with pagination, search, and filtering.
     
     Args:
         limit: Maximum number of users to return
@@ -397,13 +489,25 @@ async def get_users_list(
     """
     
     try:
-        # Get users with pagination
-        users_result = await db.execute(
-            select(User)
-            .order_by(desc(User.created_at))
-            .limit(limit)
-            .offset(offset)
-        )
+        # Build base query
+        query = select(User).order_by(desc(User.created_at))
+        
+        # ADD SEARCH FILTER
+        if search:
+            search_pattern = f"%{search}%"
+            query = query.where(
+                (User.email.ilike(search_pattern)) | (User.name.ilike(search_pattern))
+            )
+        
+        # ADD ROLE FILTER
+        if role:
+            query = query.where(User.role == role)
+        
+        # Apply pagination
+        query = query.limit(limit).offset(offset)
+        
+        # Execute query
+        users_result = await db.execute(query)
         users = users_result.scalars().all()
         
         # Get conversation counts for each user
@@ -423,13 +527,40 @@ async def get_users_list(
                 "conversation_count": conv_count
             })
         
+        # Get total count for pagination
+        count_query = select(func.count(User.id))
+        if search:
+            count_query = count_query.where(
+                (User.email.ilike(search_pattern)) | (User.name.ilike(search_pattern))
+            )
+        if role:
+            count_query = count_query.where(User.role == role)
+        
+        total_result = await db.execute(count_query)
+        total = total_result.scalar()
+        
+        # Calculate page number
+        page = (offset // limit) + 1 if limit > 0 else 1
+        
         log_admin_action(
             action="view_users_list",
             admin_user_id=str(admin_user.id),
-            details={"limit": limit, "offset": offset, "returned_count": len(user_list)}
+            details={
+                "limit": limit, 
+                "offset": offset, 
+                "search": search,
+                "role": role,
+                "returned_count": len(user_list)
+            }
         )
         
-        return user_list
+        # Return with pagination metadata
+        return {
+            "users": user_list,
+            "total": total or 0,
+            "page": page,
+            "page_size": limit
+        }
         
     except Exception as e:
         admin_logger.exception("Failed to get users list")
@@ -439,78 +570,218 @@ async def get_users_list(
         ) from e
 
 
-@router.get("/conversations/flagged", response_model=List[Dict[str, Any]])
-async def get_flagged_conversations(
-    limit: int = Query(default=50, ge=1, le=1000, description="Maximum number of conversations to return"),
+class FlaggedMessageDetail(BaseModel):
+    message_id: str
+    sender: str
+    content: str
+    created_at: str
+    metadata: Optional[Dict[str, Any]] = None
+    reviewed: bool = False
+
+class FlaggedConversationItem(BaseModel):
+    conversation_id: str
+    user_email: str
+    title: Optional[str]
+    created_at: str
+    flagged_messages: List[FlaggedMessageDetail]
+
+class FlaggedConversationsResponse(BaseModel):
+    conversations: List[FlaggedConversationItem]
+    total: int
+    page: int
+    page_size: int
+
+@router.get("/moderation/flagged", response_model=FlaggedConversationsResponse)
+async def get_flagged_content(
+    page: int = Query(default=1, ge=1, description="Page number"),
+    page_size: int = Query(default=50, ge=1, le=100, description="Items per page"),
+    reviewed: Optional[bool] = Query(default=None, description="Filter by review status (true/false)"),
+    user_email: Optional[str] = Query(default=None, description="Filter by user email"),
     admin_user: User = Depends(require_admin_role),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Get conversations that have been flagged by moderation.
-    
-    Args:
-        limit: Maximum number of conversations to return
-        admin_user: Current admin user
-        db: Database session
-        
-    Returns:
-        List of flagged conversation information
+    Get flagged conversations with their flagged messages.
+    Returns conversations that contain flagged messages, grouped by conversation.
     """
-    
     try:
-        # Get messages that have been flagged
-        flagged_messages_result = await db.execute(
-            select(Message)
+        offset = (page - 1) * page_size
+        
+        # Get flagged messages with conversation and user info
+        query = select(Message, Conversation, User.email) \
+            .join(Conversation, Message.conversation_id == Conversation.id) \
+            .join(User, Conversation.user_id == User.id) \
             .where(Message.status == "flagged")
-            .order_by(desc(Message.created_at))
-            .limit(limit)
-        )
-        flagged_messages = flagged_messages_result.scalars().all()
         
-        # Group by conversation and get conversation details
-        conversations = {}
-        for message in flagged_messages:
-            conv_id = str(message.conversation_id)
-            if conv_id not in conversations:
-                # Get conversation details
-                conv_result = await db.execute(
-                    select(Conversation).where(Conversation.id == message.conversation_id)
+        # Apply user email filter if provided
+        if user_email:
+            query = query.where(User.email.ilike(f"%{user_email}%"))
+        
+        # Apply reviewed filter if provided
+        if reviewed is not None:
+            if reviewed:
+                # Messages with reviewed=true in metadata
+                query = query.where(
+                    Message.message_metadata.op('->>')('reviewed') == 'true'
                 )
-                conversation = conv_result.scalar_one_or_none()
-                
-                if conversation:
-                    conversations[conv_id] = {
-                        "conversation_id": conv_id,
-                        "title": conversation.title,
-                        "created_at": conversation.created_at.isoformat(),
-                        "user_id": str(conversation.user_id),
-                        "flagged_messages": []
-                    }
-            
-            if conv_id in conversations:
-                conversations[conv_id]["flagged_messages"].append({
-                    "message_id": str(message.id),
-                    "sender": message.sender,
-                    "content_preview": message.content[:100] + "..." if len(message.content) > 100 else message.content,
-                    "created_at": message.created_at.isoformat(),
-                    "metadata": message.message_metadata
-                })
+            else:
+                # Messages that don't have reviewed=true in metadata
+                query = query.where(
+                    or_(
+                        Message.message_metadata == None,
+                        Message.message_metadata.op('->>')('reviewed') == None,
+                        Message.message_metadata.op('->>')('reviewed') != 'true'
+                    )
+                )
         
-        result = list(conversations.values())
+        # Order by most recent
+        query = query.order_by(desc(Message.created_at))
+        
+        # Execute query to get all flagged messages (we'll paginate conversations, not messages)
+        result = await db.execute(query)
+        rows = result.all()
+        
+        # Group messages by conversation
+        conversations_dict: Dict[str, Dict] = {}
+        
+        for row in rows:
+            message = row.Message
+            conversation = row.Conversation
+            user_email = row.email
+            
+            conv_id = str(conversation.id)
+            
+            if conv_id not in conversations_dict:
+                conversations_dict[conv_id] = {
+                    "conversation_id": conv_id,
+                    "user_email": user_email,
+                    "title": conversation.title,
+                    "created_at": conversation.created_at.isoformat(),
+                    "flagged_messages": [],
+                    "latest_flag_time": message.created_at  # For sorting
+                }
+            
+            # Add flagged message to conversation
+            conversations_dict[conv_id]["flagged_messages"].append({
+                "message_id": str(message.id),
+                "sender": message.sender,
+                "content": message.content[:200] + "..." if len(message.content) > 200 else message.content,
+                "created_at": message.created_at.isoformat(),
+                "metadata": message.message_metadata,
+                "reviewed": message.message_metadata.get("reviewed", False) if message.message_metadata else False
+            })
+            
+            # Update latest flag time if this message is more recent
+            if message.created_at > conversations_dict[conv_id]["latest_flag_time"]:
+                conversations_dict[conv_id]["latest_flag_time"] = message.created_at
+        
+        # Convert to list and sort by latest flag time
+        conversations_list = sorted(
+            conversations_dict.values(),
+            key=lambda x: x["latest_flag_time"],
+            reverse=True
+        )
+        
+        # Remove the sorting helper field
+        for conv in conversations_list:
+            del conv["latest_flag_time"]
+        
+        # Apply pagination to conversations
+        total_conversations = len(conversations_list)
+        paginated_conversations = conversations_list[offset:offset + page_size]
         
         log_admin_action(
-            action="view_flagged_conversations",
+            action="view_flagged_content",
             admin_user_id=str(admin_user.id),
-            details={"limit": limit, "returned_count": len(result)}
+            details={
+                "page": page,
+                "page_size": page_size,
+                "reviewed_filter": reviewed,
+                "user_email_filter": user_email,
+                "returned_count": len(paginated_conversations)
+            }
         )
         
-        return result
+        return FlaggedConversationsResponse(
+            conversations=[
+                FlaggedConversationItem(**conv) for conv in paginated_conversations
+            ],
+            total=total_conversations,
+            page=page,
+            page_size=page_size
+        )
         
     except Exception as e:
-        admin_logger.exception("Failed to get flagged conversations")
+        admin_logger.exception("Failed to get flagged content")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve flagged conversations"
+            detail="Failed to retrieve flagged content"
+        ) from e
+    
+
+@router.patch("/moderation/resolve/{message_id}", response_model=Dict[str, Any])
+async def resolve_flagged_message(
+    message_id: str,
+    admin_user: User = Depends(require_admin_role),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Mark a flagged message as reviewed by admin.
+    Updates the message metadata to include review information.
+    """
+    try:
+        # Get the message
+        result = await db.execute(
+            select(Message).where(Message.id == message_id)
+        )
+        message = result.scalars().first()
+        
+        if not message:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Message not found"
+            )
+        
+        if message.status != "flagged":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Message is not flagged"
+            )
+        
+        # Update metadata to mark as reviewed
+        metadata = message.message_metadata or {}
+        metadata["reviewed"] = True
+        metadata["reviewed_by"] = str(admin_user.id)
+        metadata["reviewed_by_email"] = admin_user.email
+        metadata["reviewed_at"] = datetime.utcnow().isoformat()
+        
+        message.message_metadata = metadata
+        
+        await db.commit()
+        await db.refresh(message)
+        
+        log_admin_action(
+            action="resolve_flagged_message",
+            admin_user_id=str(admin_user.id),
+            target_message_id=message_id,
+            details={"reviewed": True}
+        )
+        
+        return {
+            "success": True,
+            "message": "Flagged message marked as reviewed",
+            "message_id": message_id,
+            "reviewed_at": metadata["reviewed_at"],
+            "reviewed_by": admin_user.email
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        admin_logger.exception("Failed to resolve flagged message")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to resolve flagged message"
         ) from e
 
 
@@ -606,6 +877,18 @@ async def update_user_role(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="User not found"
+            )
+        
+        # Prevent admin from demoting themselves
+        if str(target_user.id) == str(admin_user.id) and new_role != "admin":
+            log_admin_action(
+                action="attempted_self_demotion",
+                admin_user_id=str(admin_user.id),
+                details={"attempted_role": new_role, "blocked": True}
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot change your own admin role. This action is prevented for security reasons."
             )
         
         old_role = target_user.role

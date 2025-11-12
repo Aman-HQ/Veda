@@ -1,10 +1,65 @@
-import { useCallback } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import authStore from '../stores/authStore.js';
 import api from '../services/api.js';
 
 export default function useAuth() {
   const navigate = useNavigate();
+  // Read user from authStore instead of local state
+  const [user, setUser] = useState(authStore.getUser());
+  const [isAuthenticated, setIsAuthenticated] = useState(!!authStore.getUser());
+  const [loading, setLoading] = useState(true);  // Add loading state
+
+  // Fetch user data on mount if tokens exist but no user data
+  useEffect(() => {
+    const loadUser = async () => {
+      // If we already have user data, no need to fetch
+      if (authStore.getUser()) {
+        setUser(authStore.getUser());
+        setIsAuthenticated(true);
+        setLoading(false);
+        return;
+      }
+
+      // If we have access token, fetch user data
+      if (authStore.getAccessToken()) {
+        try {
+          const userData = await getMe();
+          authStore.setUser(userData);  // Store in authStore
+          setUser(userData);
+          setIsAuthenticated(true);
+          setLoading(false);
+          return;
+        } catch (error) {
+          console.error('Failed to load user with access token:', error);
+          // Access token might be expired, try refresh token below
+        }
+      }
+
+      // If no access token but we have refresh token, refresh it first
+      if (authStore.getRefreshToken() && !authStore.getAccessToken()) {
+        try {
+          console.log('No access token found, attempting to refresh...');
+          await refreshToken();
+          // After refresh, fetch user data
+          const userData = await getMe();
+          authStore.setUser(userData);
+          setUser(userData);
+          setIsAuthenticated(true);
+        } catch (error) {
+          console.error('Failed to refresh token or load user:', error);
+          // Refresh failed, clear everything
+          authStore.clear();
+          setUser(null);
+          setIsAuthenticated(false);
+        }
+      }
+      
+      setLoading(false);  // Done loading regardless of success/failure
+    };
+    loadUser();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);  // Only run on mount
 
   const login = useCallback(async ({ email, password }) => {
     try {
@@ -18,6 +73,12 @@ export default function useAuth() {
         accessToken: access_token, 
         refreshToken: refresh_token 
       });
+      
+      // Fetch user data after login
+      const userData = await getMe();
+      authStore.setUser(userData);  // Store in authStore
+      setUser(userData);
+      setIsAuthenticated(true);
       
       navigate('/chat', { replace: true });
       return { accessToken: access_token, refreshToken: refresh_token };
@@ -85,7 +146,9 @@ export default function useAuth() {
   }, []);
 
   const logout = useCallback(() => {
-    authStore.clear();
+    authStore.clear();  // This now clears user data too
+    setUser(null);
+    setIsAuthenticated(false);
     navigate('/login', { replace: true });
   }, [navigate]);
 
@@ -103,7 +166,17 @@ export default function useAuth() {
     }
   }, []);
 
-  return { login, logout, register, refreshToken, isAuthed, getMe };
+  return { 
+    login, 
+    logout, 
+    register, 
+    refreshToken, 
+    isAuthed, 
+    getMe, 
+    user, 
+    isAuthenticated,
+    loading  // Export loading state
+  };
 }
 
 

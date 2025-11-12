@@ -1,6 +1,7 @@
 // authStore.js - Authentication state management
 
 let inMemoryAccessToken = null;
+let inMemoryUser = null;  // Store user data in memory
 
 const REFRESH_TOKEN_KEY = 'refreshToken';
 
@@ -17,6 +18,17 @@ const authStore = {
     }
   },
 
+  // Set user data
+  setUser(userData) {
+    inMemoryUser = userData;
+    console.log('AuthStore: User data stored', userData?.email);
+  },
+
+  // Get user data
+  getUser() {
+    return inMemoryUser;
+  },
+
   // Clear all authentication tokens (alias for clearTokens)
   clear() {
     this.clearTokens();
@@ -25,9 +37,10 @@ const authStore = {
   // Clear all authentication tokens
   clearTokens() {
     inMemoryAccessToken = null;
+    inMemoryUser = null;  // Clear user data too
     try {
       window.localStorage.removeItem(REFRESH_TOKEN_KEY);
-      console.log('AuthStore: Tokens cleared');
+      console.log('AuthStore: Tokens and user data cleared');
     } catch (e) {
       console.error('AuthStore: Failed to clear tokens', e);
     }

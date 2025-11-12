@@ -17,6 +17,7 @@ from app.api.routers import auth_router, conversations_router, messages_router
 from app.api.routers.stream import router as stream_router, start_cleanup_task
 from app.api.routers.admin import router as admin_router
 from app.api.routers.uploads import router as uploads_router
+from app.api.routers import admin
 from app.models.user import User
 from app.models.conversation import Conversation
 from app.models.message import Message
