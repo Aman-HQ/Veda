@@ -120,13 +120,36 @@ async def create_message(
         }
     )
     
-    # Block high-severity content
-    if not moderation_result.is_safe and moderation_result.action == "block":
+    # Determine message status based on moderation
+    status = "sent"
+    if moderation_result.action == "block":
+        status = "blocked"
         logger.warning(
             f"Message blocked by moderation: user={current_user.id}, "
             f"severity={moderation_result.severity}, "
             f"keywords={moderation_result.matched_keywords}"
         )
+    elif moderation_result.action == "flag":
+        status = "flagged"
+        logger.info(
+            f"Message flagged by moderation: user={current_user.id}, "
+            f"severity={moderation_result.severity}, "
+            f"keywords={moderation_result.matched_keywords}"
+        )
+    
+    # Store moderation info in metadata
+    if message_create.message_metadata is None:
+        message_create.message_metadata = {}
+    
+    message_create.message_metadata["moderation"] = {
+        "action": moderation_result.action,
+        "severity": moderation_result.severity,
+        "matched_keywords": moderation_result.matched_keywords,
+        "is_safe": moderation_result.is_safe
+    }
+    
+    # Block high-severity content
+    if not moderation_result.is_safe and moderation_result.action == "block":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
@@ -137,20 +160,13 @@ async def create_message(
             }
         )
     
-    # Log flagged content (medium severity) but allow it
-    if moderation_result.action == "flag":
-        logger.info(
-            f"Message flagged by moderation: user={current_user.id}, "
-            f"severity={moderation_result.severity}, "
-            f"keywords={moderation_result.matched_keywords}"
-        )
-    
-    # Create the message with atomic count increment
+    # Create the message with atomic count increment and appropriate status
     message = await MessageCRUD.create_with_count_increment(
         db=db,
-        message_create=message_create,
         conversation_id=conversation_id,
-        sender="user"  # Default to user, can be overridden for assistant messages
+        sender="user",
+        status=status,
+        message_create=message_create
     )
     
     return message

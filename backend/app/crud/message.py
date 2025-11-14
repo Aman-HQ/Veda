@@ -110,7 +110,8 @@ class MessageCRUD:
         db: AsyncSession, 
         message_create: MessageCreate, 
         conversation_id: UUID,
-        sender: str = "user"
+        sender: str = "user",
+        status: str = "sent"
     ) -> Message:
         """
         Create a new message in a conversation.
@@ -120,6 +121,7 @@ class MessageCRUD:
             message_create: Message creation data
             conversation_id: Conversation UUID
             sender: Message sender ("user" or "assistant")
+            status: Message status ("sent", "blocked", "flagged"). Defaults to "sent".
             
         Returns:
             Created message
@@ -128,7 +130,7 @@ class MessageCRUD:
             conversation_id=conversation_id,
             sender=sender,
             content=message_create.content,
-            status="sent",
+            status=status,
             message_metadata=message_create.message_metadata or {}
         )
         
@@ -140,9 +142,13 @@ class MessageCRUD:
     @staticmethod
     async def create_with_count_increment(
         db: AsyncSession, 
-        message_create: MessageCreate, 
         conversation_id: UUID,
-        sender: str = "user"
+        sender: str = "user",
+        content: str = "",
+        status: str = "sent",
+        message_metadata: Optional[Dict[str, Any]] = None,
+        message_id: Optional[UUID] = None,
+        message_create: Optional[MessageCreate] = None
     ) -> Message:
         """
         Create a new message and atomically increment conversation message count.
@@ -150,20 +156,32 @@ class MessageCRUD:
         
         Args:
             db: Database session
-            message_create: Message creation data
             conversation_id: Conversation UUID
             sender: Message sender ("user" or "assistant")
+            content: Message content (used if message_create not provided)
+            status: Message status ("sent", "blocked", "flagged"). Defaults to "sent".
+            message_metadata: Optional metadata dict
+            message_id: Optional UUID for the message (useful for streaming)
+            message_create: Optional MessageCreate schema (takes precedence over individual params)
             
         Returns:
             Created message
         """
+        # Use message_create if provided, otherwise use individual params
+        if message_create:
+            content = message_create.content
+            metadata = message_create.message_metadata or {}
+        else:
+            metadata = message_metadata or {}
+        
         # Create the message
         message = Message(
+            id=message_id if message_id else None,  # Let DB generate if not provided
             conversation_id=conversation_id,
             sender=sender,
-            content=message_create.content,
-            status="sent",
-            message_metadata=message_create.message_metadata or {}
+            content=content,
+            status=status,
+            message_metadata=metadata
         )
         db.add(message)
         

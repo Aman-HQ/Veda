@@ -12,7 +12,7 @@ from datetime import datetime
 
 from .llm_provider import LLMProvider
 from ..models.conversation import Conversation
-from ..models.message import Message
+from ..models.message import Message  # Keep for type hints
 from ..models.user import User
 from ..crud.message import MessageCRUD
 from ..crud.conversation import ConversationCRUD
@@ -69,6 +69,17 @@ class WebSocketStreamer:
             })
         except Exception as e:
             logger.error(f"Error sending error: {e}")
+    
+    async def send_user_message_saved(self, message_id: str):
+        """Send notification that user message was saved."""
+        try:
+            await self.websocket.send_json({
+                "type": "user_message_saved",
+                "messageId": message_id,
+                "conversationId": self.conversation_id
+            })
+        except Exception as e:
+            logger.error(f"Error sending user_message_saved: {e}")
 
 
 class ChatManager:
@@ -121,7 +132,7 @@ class ChatManager:
                     logger.info(f"Duplicate message ignored: {client_message_id}")
                     return {"message_id": str(existing_message.id), "duplicate": True}
             
-            # Persist user message
+            # Persist user message (with moderation check)
             user_message = await self._create_user_message(
                 conversation_id=conversation_id,
                 text=text,
@@ -130,7 +141,40 @@ class ChatManager:
                 client_message_id=client_message_id
             )
             
-            # Generate assistant response
+            # Notify frontend that user message was saved
+            if ws_streamer:
+                await ws_streamer.send_user_message_saved(str(user_message.id))
+            
+            # Check if message was blocked by moderation
+            if user_message.status == "blocked":
+                # Create safe response for blocked content
+                safe_response = (
+                    "I understand you may be going through a difficult time. "
+                    "For immediate support with serious concerns, please contact:\n\n"
+                    "• National Crisis Hotline: 988\n"
+                    "• Crisis Text Line: Text HOME to 741741\n"
+                    "• Emergency Services: 911\n\n"
+                    "I'm here to provide general health information and support within appropriate boundaries."
+                )
+                
+                # Create assistant message with safe response
+                assistant_message = await self._create_assistant_message(
+                    conversation_id=conversation_id,
+                    content=safe_response
+                )
+                
+                # Update conversation stats
+                await self._update_conversation_stats(conversation_id, user_id)
+                
+                return {
+                    "user_message_id": str(user_message.id),
+                    "assistant_message_id": str(assistant_message.id),
+                    "response": safe_response,
+                    "conversation_id": conversation_id,
+                    "blocked": True
+                }
+            
+            # Generate assistant response for allowed/flagged messages
             if ws_streamer:
                 # Streaming response
                 assistant_message_id = str(uuid.uuid4())
@@ -243,7 +287,8 @@ class ChatManager:
         image: Optional[bytes] = None,
         client_message_id: Optional[str] = None
     ) -> Message:
-        """Create and persist user message."""
+        """Create and persist user message with moderation."""
+        from .moderation import moderate_content
         
         # Determine message content and metadata
         content = text or ""
@@ -262,20 +307,52 @@ class ChatManager:
         if client_message_id:
             metadata["client_message_id"] = client_message_id
         
-        # Create message
-        message = Message(
+        # Moderate content if text is provided
+        status = "sent"
+        if content and content not in ["[Voice message]", "[Image message]"]:
+            moderation_result = moderate_content(
+                content,
+                context={
+                    "conversation_id": conversation_id,
+                    "endpoint": "chat_manager"
+                }
+            )
+            
+            # Store moderation result in metadata
+            metadata["moderation"] = {
+                "action": moderation_result.action,
+                "severity": moderation_result.severity,
+                "matched_keywords": moderation_result.matched_keywords,
+                "is_safe": moderation_result.is_safe
+            }
+            
+            # Set status based on moderation action
+            if moderation_result.action == "block":
+                status = "blocked"
+                logger.warning(
+                    f"Message blocked: conversation={conversation_id}, "
+                    f"severity={moderation_result.severity}, "
+                    f"keywords={moderation_result.matched_keywords}"
+                )
+            elif moderation_result.action == "flag":
+                status = "flagged"
+                logger.info(
+                    f"Message flagged: conversation={conversation_id}, "
+                    f"severity={moderation_result.severity}, "
+                    f"keywords={moderation_result.matched_keywords}"
+                )
+        
+        # Create message using MessageCRUD (increments conversation count)
+        message = await MessageCRUD.create_with_count_increment(
+            db=self.db,
             conversation_id=uuid.UUID(conversation_id),
             sender="user",
             content=content,
             message_metadata=metadata,
-            status="sent"
+            status=status
         )
         
-        self.db.add(message)
-        await self.db.commit()
-        await self.db.refresh(message)
-        
-        logger.info(f"User message created: {message.id}")
+        logger.info(f"User message created: {message.id}, status: {status}")
         return message
     
     async def _create_assistant_message(
@@ -285,20 +362,21 @@ class ChatManager:
         message_id: Optional[str] = None,
         status: str = "sent"
     ) -> Message:
-        """Create and persist assistant message."""
+        """Create and persist assistant message using MessageCRUD."""
         
-        message = Message(
-            id=uuid.UUID(message_id) if message_id else uuid.uuid4(),
+        metadata = {"disclaimer": True}
+        if message_id:
+            metadata["provided_message_id"] = message_id
+        
+        message = await MessageCRUD.create_with_count_increment(
+            db=self.db,
             conversation_id=uuid.UUID(conversation_id),
             sender="assistant",
             content=content,
-            message_metadata={"disclaimer": True},
-            status=status
+            message_metadata=metadata,
+            status=status,
+            message_id=uuid.UUID(message_id) if message_id else None
         )
-        
-        self.db.add(message)
-        await self.db.commit()
-        await self.db.refresh(message)
         
         logger.info(f"Assistant message created: {message.id}")
         return message

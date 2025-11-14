@@ -3,6 +3,7 @@ import MessageBubble from './MessageBubble.jsx';
 import TypingIndicator from './TypingIndicator.jsx';
 import { listMessages, createMessage } from '../../services/chatService.js';
 import useWebSocket from '../../hooks/useWebSocket.js';
+import authStore from '../../stores/authStore.js';
 
 export default function ChatWindow({ conversationId, reloadToken, onAssistantDone }) {
   const [messages, setMessages] = useState([]);
@@ -48,7 +49,7 @@ export default function ChatWindow({ conversationId, reloadToken, onAssistantDon
     el.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages, streaming, draftAssistant]);
 
-  // Start mock streaming when the latest message is from user and no assistant follows
+  // Start streaming when the latest message is from user and no assistant follows
   useEffect(() => {
     if (!conversationId) return;
     if (streaming) return;
@@ -64,13 +65,15 @@ export default function ChatWindow({ conversationId, reloadToken, onAssistantDon
     let unsubChunk = () => {};
     let unsubDone = () => {};
     let unsubError = () => {};
+    let unsubMessage = () => {};
 
-    unsubChunk = ws.onChunk((chunk) => {
+    unsubChunk = ws.onChunk((messageId, chunk) => {
       setDraftAssistant((prev) => prev + chunk);
     });
-    unsubDone = ws.onDone(async (finalText) => {
+    
+    unsubDone = ws.onDone(async (messageId, finalText) => {
       try {
-        await createMessage({ conversationId, role: 'assistant', content: finalText });
+        // No need to create message - backend already saved it
         setDraftAssistant('');
         setStreaming(false);
         onAssistantDone?.();
@@ -78,28 +81,53 @@ export default function ChatWindow({ conversationId, reloadToken, onAssistantDon
         setError('Failed to finalize message.');
         setStreaming(false);
       } finally {
-        ws.disconnect();
         unsubChunk?.();
         unsubDone?.();
         unsubError?.();
+        unsubMessage?.();
       }
     });
+    
     unsubError = ws.onError((err) => {
-      setError('Streaming error.');
+      setError(typeof err === 'string' ? err : 'Streaming error.');
       setStreaming(false);
-      ws.disconnect();
       unsubChunk?.();
       unsubDone?.();
       unsubError?.();
+      unsubMessage?.();
     });
 
-    ws.connect('mock-access-token', conversationId);
+    // Handle special message events (blocked, flagged, etc.)
+    unsubMessage = ws.onMessage((data) => {
+      if (data.type === 'blocked') {
+        setError('Message blocked due to safety concerns.');
+        setStreaming(false);
+        setDraftAssistant(data.safe_response || 'Your message could not be sent.');
+        onAssistantDone?.(); // Refresh to show blocked message
+        unsubChunk?.();
+        unsubDone?.();
+        unsubError?.();
+        unsubMessage?.();
+      } else if (data.type === 'user_message_saved') {
+        // User message was saved, trigger refresh
+        onAssistantDone?.();
+      }
+    });
+
+    const accessToken = authStore.getAccessToken();
+    if (!accessToken) {
+      setError('Authentication required');
+      setStreaming(false);
+      return;
+    }
+
+    ws.connect(accessToken, conversationId);
 
     return () => {
-      ws.disconnect();
       unsubChunk?.();
       unsubDone?.();
       unsubError?.();
+      unsubMessage?.();
     };
   }, [conversationId, messages, streaming]);
 

@@ -125,8 +125,8 @@ async def websocket_endpoint(
     
     # Verify conversation access
     try:
-        conversation = await ConversationCRUD.get_by_id(db, conversation_id)
-        if not conversation or str(conversation.user_id) != str(user.id):
+        conversation = await ConversationCRUD.get_by_id(db, UUID(conversation_id), user.id)
+        if not conversation:
             await websocket.close(code=4003, reason="Conversation not found or access denied")
             return
     except Exception as e:

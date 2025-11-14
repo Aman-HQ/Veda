@@ -64,8 +64,9 @@ async def get_admin_stats(
     """
     
     try:
-        # Calculate date range
-        end_date = datetime.utcnow()
+        # Calculate date range (use timezone-aware datetime)
+        from datetime import timezone
+        end_date = datetime.now(timezone.utc)
         start_date = end_date - timedelta(days=days)
         
         # User statistics
@@ -116,8 +117,33 @@ async def get_admin_stats(
             if total_conversations > 0 else 0
         )
         
-        # Moderation statistics
+        # Moderation statistics from service (in-memory stats)
         moderation_stats = moderation_service.get_statistics()
+        
+        # Get real-time database counts for flagged/blocked messages
+        total_flagged_result = await db.execute(
+            select(func.count(Message.id))
+            .where(Message.status.in_(["flagged", "blocked"]))
+        )
+        total_flagged = total_flagged_result.scalar() or 0
+        
+        # Count unreviewed flagged messages (needs review)
+        reviewed_result = await db.execute(
+            select(func.count(Message.id))
+            .where(
+                and_(
+                    Message.status.in_(["flagged", "blocked"]),
+                    Message.message_metadata.op('->>')('reviewed') == 'true'
+                )
+            )
+        )
+        reviewed_count = reviewed_result.scalar() or 0
+        flagged_needs_review = total_flagged - reviewed_count
+        
+        # Enhance moderation stats with database counts
+        moderation_stats['total_flags'] = total_flagged
+        moderation_stats['needs_review'] = flagged_needs_review
+        moderation_stats['reviewed'] = reviewed_count
         
         # System health checks
         llm_provider = LLMProvider()
@@ -126,6 +152,67 @@ async def get_admin_stats(
         llm_health = await llm_provider.health_check()
         rag_health = await rag_pipeline.health_check()
         moderation_health = moderation_service.health_check()
+        
+        # Daily activity breakdown
+        daily_activity = []
+        for day_offset in range(days):
+            # Start from (days-1) days ago to today (0 days ago)
+            # When days=7: day_offset goes 0,1,2,3,4,5,6
+            # Calculate days ago: 0 = today, 1 = yesterday, etc.
+            days_ago = days - 1 - day_offset
+            day_date = end_date - timedelta(days=days_ago)
+            # Ensure we include today's data by using end_date for the last day
+            if days_ago == 0:  # Today
+                day_start = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
+                day_end = end_date  # Use current time for today
+            else:
+                day_start = day_date.replace(hour=0, minute=0, second=0, microsecond=0)
+                day_end = day_start + timedelta(days=1)
+            
+            # DEBUG: Print date range for today
+            if days_ago == 0:
+                admin_logger.info(f"TODAY's range: {day_start} to {day_end}")
+            
+            # Messages on this day
+            messages_on_day_result = await db.execute(
+                select(func.count(Message.id)).where(
+                    and_(Message.created_at >= day_start, Message.created_at < day_end)
+                )
+            )
+            messages_count = messages_on_day_result.scalar() or 0
+            
+            # DEBUG: Log today's counts
+            if days_ago == 0:
+                admin_logger.info(f"TODAY's message count: {messages_count}")
+            
+            # Conversations started on this day
+            conversations_on_day_result = await db.execute(
+                select(func.count(Conversation.id)).where(
+                    and_(Conversation.created_at >= day_start, Conversation.created_at < day_end)
+                )
+            )
+            conversations_count = conversations_on_day_result.scalar() or 0
+            
+            # DEBUG: Log today's counts
+            if days_ago == 0:
+                admin_logger.info(f"TODAY's conversation count: {conversations_count}")
+            
+            # Active users on this day (users who had conversations with messages)
+            active_users_on_day_result = await db.execute(
+                select(func.count(func.distinct(Conversation.user_id)))
+                .join(Message, Message.conversation_id == Conversation.id)
+                .where(
+                    and_(Message.created_at >= day_start, Message.created_at < day_end)
+                )
+            )
+            active_users_count = active_users_on_day_result.scalar() or 0
+            
+            daily_activity.append({
+                "date": day_start.strftime("%Y-%m-%d"),
+                "messages": messages_count,
+                "conversations": conversations_count,
+                "active_users": active_users_count
+            })
         
         # Compile comprehensive stats
         stats = {
@@ -140,6 +227,7 @@ async def get_admin_stats(
                 "assistant_messages_recent": assistant_messages,
                 "avg_messages_per_conversation": avg_messages_per_conversation
             },
+            "daily_activity": daily_activity,
             "moderation": moderation_stats,
             "system_health": {
                 "llm_provider": llm_health,
@@ -214,10 +302,10 @@ async def get_admin_metrics(
         )
         messages_today = messages_today_result.scalar()
         
-        # Flagged messages (total)
+        # Flagged and blocked messages (total)
         flagged_messages_result = await db.execute(
             select(func.count(Message.id))
-            .where(Message.status == "flagged")
+            .where(Message.status.in_(["flagged", "blocked"]))
         )
         flagged_messages = flagged_messages_result.scalar()
         
@@ -313,25 +401,25 @@ async def get_moderation_stats(
         # ADD: Get real-time database counts
         today = datetime.utcnow().date()
         
-        # Count total flagged messages in database
+        # Count total flagged and blocked messages in database
         total_flagged_result = await db.execute(
             select(func.count(Message.id))
-            .where(Message.status == "flagged")
+            .where(Message.status.in_(["flagged", "blocked"]))
         )
         total_flagged = total_flagged_result.scalar() or 0
         
-        # Count unreviewed flagged messages
-        # Simpler approach: count all flagged, then subtract those explicitly marked as reviewed
+        # Count unreviewed flagged and blocked messages
+        # Simpler approach: count all flagged/blocked, then subtract those explicitly marked as reviewed
         all_flagged_result = await db.execute(
             select(func.count(Message.id))
-            .where(Message.status == "flagged")
+            .where(Message.status.in_(["flagged", "blocked"]))
         )
         
         reviewed_result = await db.execute(
             select(func.count(Message.id))
             .where(
                 and_(
-                    Message.status == "flagged",
+                    Message.status.in_(["flagged", "blocked"]),
                     Message.message_metadata.op('->>')('reviewed') == 'true'
                 )
             )
@@ -354,8 +442,8 @@ async def get_moderation_stats(
         # ADD: Extract top flagged keywords from database
         result = await db.execute(
             select(Message.message_metadata)
-            .where(Message.status == "flagged")
-            .limit(100)  # Sample last 100 flagged messages
+            .where(Message.status.in_(["flagged", "blocked"]))
+            .limit(100)  # Sample last 100 flagged/blocked messages
         )
         messages_meta = result.scalars().all()
         
@@ -375,6 +463,9 @@ async def get_moderation_stats(
         detailed_stats = {
             # Moderation service stats (from your original code)
             **service_stats,
+            
+            # Add total_rules for frontend compatibility
+            "total_rules": service_stats.get("total_keywords", 0),
             
             # Database counts (real-time)
             "database_counts": {
@@ -584,6 +675,9 @@ class FlaggedConversationItem(BaseModel):
     title: Optional[str]
     created_at: str
     flagged_messages: List[FlaggedMessageDetail]
+    total_flagged_count: int = 0
+    reviewed_count: int = 0
+    unreviewed_count: int = 0
 
 class FlaggedConversationsResponse(BaseModel):
     conversations: List[FlaggedConversationItem]
@@ -607,11 +701,35 @@ async def get_flagged_content(
     try:
         offset = (page - 1) * page_size
         
-        # Get flagged messages with conversation and user info
+        # STEP 1: Get ALL flagged and blocked messages to calculate total counts per conversation
+        all_flagged_query = select(Message.conversation_id, Message.message_metadata) \
+            .where(Message.status.in_(["flagged", "blocked"]))
+        
+        all_flagged_result = await db.execute(all_flagged_query)
+        all_flagged_rows = all_flagged_result.all()
+        
+        # Calculate total counts per conversation
+        conversation_counts = {}
+        for row in all_flagged_rows:
+            conv_id = str(row.conversation_id)
+            if conv_id not in conversation_counts:
+                conversation_counts[conv_id] = {"total": 0, "reviewed": 0, "unreviewed": 0}
+            
+            conversation_counts[conv_id]["total"] += 1
+            # Check if reviewed - handle both string 'true' and boolean True
+            metadata = row.message_metadata if row.message_metadata else {}
+            is_reviewed = metadata.get("reviewed", False)
+            # Handle both boolean True and string 'true'
+            if is_reviewed is True or is_reviewed == True or str(is_reviewed).lower() == 'true':
+                conversation_counts[conv_id]["reviewed"] += 1
+            else:
+                conversation_counts[conv_id]["unreviewed"] += 1
+        
+        # STEP 2: Get filtered messages with conversation and user info
         query = select(Message, Conversation, User.email) \
             .join(Conversation, Message.conversation_id == Conversation.id) \
             .join(User, Conversation.user_id == User.id) \
-            .where(Message.status == "flagged")
+            .where(Message.status.in_(["flagged", "blocked"]))
         
         # Apply user email filter if provided
         if user_email:
@@ -637,7 +755,7 @@ async def get_flagged_content(
         # Order by most recent
         query = query.order_by(desc(Message.created_at))
         
-        # Execute query to get all flagged messages (we'll paginate conversations, not messages)
+        # Execute query to get filtered flagged messages
         result = await db.execute(query)
         rows = result.all()
         
@@ -682,8 +800,15 @@ async def get_flagged_content(
             reverse=True
         )
         
-        # Remove the sorting helper field
+        # Add counts for each conversation using pre-calculated totals
         for conv in conversations_list:
+            conv_id = conv["conversation_id"]
+            counts = conversation_counts.get(conv_id, {"total": 0, "reviewed": 0, "unreviewed": 0})
+            
+            conv["total_flagged_count"] = counts["total"]
+            conv["reviewed_count"] = counts["reviewed"]
+            conv["unreviewed_count"] = counts["unreviewed"]
+            
             del conv["latest_flag_time"]
         
         # Apply pagination to conversations
@@ -730,9 +855,20 @@ async def resolve_flagged_message(
     Updates the message metadata to include review information.
     """
     try:
+        from uuid import UUID
+        
+        # Convert string to UUID
+        try:
+            msg_uuid = UUID(message_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid message ID format"
+            )
+        
         # Get the message
         result = await db.execute(
-            select(Message).where(Message.id == message_id)
+            select(Message).where(Message.id == msg_uuid)
         )
         message = result.scalars().first()
         
@@ -757,14 +893,17 @@ async def resolve_flagged_message(
         
         message.message_metadata = metadata
         
+        # Mark the JSONB column as modified (important for SQLAlchemy to detect the change)
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(message, "message_metadata")
+        
         await db.commit()
         await db.refresh(message)
         
         log_admin_action(
             action="resolve_flagged_message",
             admin_user_id=str(admin_user.id),
-            target_message_id=message_id,
-            details={"reviewed": True}
+            details={"reviewed": True, "message_id": message_id}
         )
         
         return {
