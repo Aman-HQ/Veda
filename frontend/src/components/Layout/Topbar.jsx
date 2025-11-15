@@ -5,25 +5,19 @@ export default function Topbar({ onMenuClick }) {
   const { user } = useAuth();
   
   return (
-    <header className="fixed top-0 inset-x-0 h-14 backdrop-blur supports-[backdrop-filter]:bg-white/60 bg-white/80 dark:bg-slate-900/80 border-b border-slate-200/60 dark:border-slate-800 z-40">
-      <div className="h-full max-w-screen-2xl mx-auto flex items-center gap-2 px-3 sm:px-4">
-        {/* Left: Logo + App name */}
-        <div className="flex items-center gap-2 select-none">
-          <div className="h-6 w-6 rounded bg-gradient-to-br from-indigo-500 to-violet-500" />
-          <span className="font-semibold text-slate-800 dark:text-slate-100">Veda</span>
-        </div>
-
-        {/* Right: Admin Panel Link + User avatar + Menu toggle */}
+    <header className="h-full">
+      <div className="h-full max-w-screen-2xl mx-auto flex items-center gap-2 px-4">
+        {/* Right: Admin Panel Link + User avatar (no menu toggle - it's in sidebar now) */}
         <div className="ml-auto flex items-center gap-2">
           {/* Admin Panel Button - Only visible for admin users */}
           {user?.role === 'admin' && (
             <Link
               to="/admin"
               className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md 
-                bg-white/100 text-black text-sm font-medium 
-                border border-purple-700 
-                shadow-sm transition-colors 
-                focus-visible:ring-2 focus-visible:ring-black/500 focus-visible:ring-offset-2"
+                bg-white/80 dark:bg-slate-800/80 text-slate-800 dark:text-slate-200 text-sm font-medium 
+                border border-slate-300 dark:border-slate-600 
+                backdrop-blur-md shadow-sm hover:bg-white dark:hover:bg-slate-700 transition-colors 
+                focus-visible:ring-2 focus-visible:ring-blue-500"
               title="Admin Panel"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -34,15 +28,11 @@ export default function Topbar({ onMenuClick }) {
             </Link>
           )}
           
-          <button aria-label="User" className="inline-flex items-center justify-center h-9 w-9 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 transition-colors">
-            <span className="text-sm">😊</span>
-          </button>
-          <button
-            aria-label="Toggle sidebar"
-            className="inline-flex items-center justify-center h-9 w-9 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 transition-colors"
-            onClick={onMenuClick}
+          <button 
+            aria-label="User" 
+            className="inline-flex items-center justify-center h-8 w-8 rounded-full bg-slate-100/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-blue-500 transition-colors"
           >
-            <span className="text-xl">≡</span>
+            <span className="text-sm">😊</span>
           </button>
         </div>
       </div>

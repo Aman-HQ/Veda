@@ -12,6 +12,7 @@ let conversations = [
     lastMessage: 'How can I help you today? 😊',
     createdAt: nowIso(),
     updatedAt: nowIso(),
+    isPinned: false,
   },
 ];
 
@@ -41,10 +42,27 @@ export async function createConversation({ title }) {
     lastMessage: '',
     createdAt: nowIso(),
     updatedAt: nowIso(),
+    isPinned: false,
   };
   conversations.unshift(conversation);
   messagesByConversationId[conversation.id] = [];
   return { id: conversation.id, ...conversation };
+}
+
+export async function updateConversation(id, { title, isPinned }) {
+  await delay(150);
+  const conv = conversations.find((c) => c.id === id);
+  if (!conv) {
+    throw new Error('Conversation not found');
+  }
+  if (title !== undefined) {
+    conv.title = title;
+  }
+  if (isPinned !== undefined) {
+    conv.isPinned = isPinned;
+  }
+  conv.updatedAt = nowIso();
+  return { ...conv };
 }
 
 export async function deleteConversation(id) {
@@ -87,6 +105,7 @@ export async function createMessage({ conversationId, role, content }) {
 export default {
   listConversations,
   createConversation,
+  updateConversation,
   deleteConversation,
   listMessages,
   createMessage,

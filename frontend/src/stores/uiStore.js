@@ -9,7 +9,7 @@
 const listeners = new Set();
 
 const initialState = {
-  sidebarOpen: false,
+  sidebarOpen: true,
   activeConversationId: null,
   modal: { name: null, payload: null },
 };

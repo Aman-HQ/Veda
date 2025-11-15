@@ -37,6 +37,19 @@ const realApi = {
     }
   },
 
+  async updateConversation(id, { title, isPinned }) {
+    try {
+      const response = await api.patch(`/api/conversations/${id}`, {
+        title,
+        is_pinned: isPinned
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Failed to update conversation:', error);
+      throw error;
+    }
+  },
+
   async listMessages(conversationId) {
     try {
       const response = await api.get(`/api/${conversationId}/messages`, {
@@ -79,6 +92,7 @@ const svc = useMock ? mockApi : realApi;
 export const listConversations = svc.listConversations;
 export const createConversation = svc.createConversation;
 export const deleteConversation = svc.deleteConversation;
+export const updateConversation = svc.updateConversation || ((id, data) => Promise.resolve({ id, ...data }));
 export const listMessages = svc.listMessages;
 export const createMessage = svc.createMessage;
 
@@ -86,6 +100,7 @@ export default {
   listConversations,
   createConversation,
   deleteConversation,
+  updateConversation,
   listMessages,
   createMessage,
 };

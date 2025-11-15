@@ -13,51 +13,77 @@ export default function ChatLayout({ sidebarContent, children }) {
   }, []);
 
   return (
-
-    <div className="fixed inset-0 overflow-hidden
-     bg-gradient-to-br from-pink-100 via-white to-sky-100 
-     dark:from-slate-800 dark:via-slate-900 dark:to-slate-950">
-      
-      {/* Top bar (make it frosted too) */}
-      <div className="backdrop-blur-md bg-white/30 dark:bg-slate-900/30 border-b border-white/20 dark:border-slate-700/30">
-          <Topbar onMenuClick={() => uiStore.toggleSidebar()} />
-    </div>
-
-
-      <div className="pt-14 h-full">
-        <div className="h-full flex">
+    <div className="fixed inset-0 overflow-hidden flex">
+      {/* Sidebar with its own header - extends to top */}
+      <div className={`relative transition-all duration-300 ease-in-out overflow-hidden ${
+        sidebarOpen ? 'w-72' : 'w-0'
+      }`}>
+        <div 
+          className="w-72 h-full border-r flex flex-col transition-colors duration-300"
+          style={{
+            backgroundColor: 'var(--sidebar-bg)',
+            borderColor: 'var(--sidebar-border)'
+          }}
+        >
+          {/* Sidebar Header */}
+          <div 
+            className="h-14 flex items-center px-4 gap-3 border-b flex-shrink-0 transition-colors duration-300"
+            style={{
+              backgroundColor: 'var(--sidebar-bg)',
+              borderColor: 'var(--sidebar-border)'
+            }}
+          >
+            <button
+              aria-label="Toggle sidebar"
+              className="inline-flex items-center justify-center h-8 w-8 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-blue-500 transition-all"
+              style={{
+                color: 'var(--sidebar-text)'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--sidebar-hover)'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+              onClick={() => uiStore.toggleSidebar()}
+            >
+              <span className="text-xl">☰</span>
+            </button>
+            <span 
+              className="font-semibold text-lg transition-colors duration-300"
+              style={{ color: 'var(--sidebar-text)' }}
+            >
+              Veda
+            </span>
+          </div>
           
-      {/* Sidebar with frosted glass effect */}
-        <div className="backdrop-blur-md bg-white/40 dark:bg-slate-800/30 border-r border-white/20 dark:border-slate-700/30 overflow-y-auto h-full">
-           <Sidebar open={sidebarOpen} onClose={() => uiStore.closeSidebar()}>{sidebarContent}</Sidebar>
-    </div> 
-
-
-           {/* Main chat area */}
-
-          <main className="flex-1 min-w-0 h-full flex flex-col 
-  backdrop-blur-lg bg-white/20 dark:bg-slate-800/30 
-  border border-white/20 dark:border-slate-700/30 
-  rounded-xl m-2 p-2 shadow-lg">
-
-
-            {/* Desktop toggle (always visible) */}
-            <div className="hidden sm:flex p-2">
-              <button
-                className="inline-flex items-center gap-2 rounded-md 
-  border border-slate-200 dark:border-slate-700 
-  bg-white/70 dark:bg-slate-800/70 
-  backdrop-blur-md hover:bg-white/80 dark:hover:bg-slate-700/70 
-  px-3 py-1.5 text-sm text-slate-700 dark:text-slate-200 shadow-sm"
-                onClick={() => uiStore.toggleSidebar()}
-              >
-                <span className="text-base">≡</span>
-                <span>Toggle sidebar</span>
-              </button> 
-            </div>
-            {children ? children : <Outlet />}
-          </main>
+          {/* Sidebar Content */}
+          <div className="flex-1 overflow-hidden">
+            <Sidebar open={sidebarOpen} onClose={() => uiStore.closeSidebar()}>
+              {sidebarContent}
+            </Sidebar>
+          </div>
         </div>
+      </div>
+
+      {/* Main content area */}
+      <div className="flex-1 min-w-0 h-full flex flex-col relative">
+        {/* Completely transparent top bar */}
+        <div 
+          className="h-12 flex-shrink-0 transition-all duration-300"
+          style={{
+            backgroundColor: 'transparent',
+            borderColor: 'transparent'
+          }}
+        >
+          <Topbar onMenuClick={() => uiStore.toggleSidebar()} />
+        </div>
+
+        {/* Main chat area with enhanced glass effect */}
+        <main 
+          className="flex-1 min-h-0 flex flex-col backdrop-blur-sm shadow-lg transition-all duration-300"
+          style={{
+            backgroundColor: 'transparent'
+          }}
+        >
+          {children ? children : <Outlet />}
+        </main>
       </div>
     </div>
   );

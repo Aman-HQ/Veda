@@ -529,7 +529,7 @@ export default function AdminModeration() {
             <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-red-50 to-orange-50 dark:from-slate-800 dark:to-slate-800">
               <div className="flex items-start justify-between">
                 <div>
-                  <h3 className="text-2xl font-semibold text-red-600 dark:text-red-400 flex items-center gap-2">
+                  <h3 className="text-2xl font-semibold text-red-600 dark:text-white flex items-center gap-2">
                     <span className="bg-red-50 dark:bg-red-900/20 p-3 rounded-lg">
                       <AlertTriangle className="text-red-600 dark:text-red-400" size={25} /></span>
                     Flagged Conversation Details

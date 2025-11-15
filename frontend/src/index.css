@@ -1,18 +1,131 @@
 @import "tailwindcss";
 
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  /* Font System */
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
 
   color-scheme: light dark;
   color: rgba(255, 255, 255, 0.87);
-  background-color: #0b1220; /* subtle dark base to support gradients */
-
+  background-color: #0b1220;
+  
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  /* ===== Light Mode Color System ===== */
+  
+  /* Gradient Background Components */
+  --bg-gradient-purple: rgba(147, 51, 234, 0.1);
+  --bg-gradient-pink: rgba(236, 72, 153, 0.1);
+  --bg-gradient-white: rgba(255, 255, 255, 0.95);
+  --bg-gradient-blue: rgba(56, 189, 248, 0.1);
+  --bg-gradient-sky: rgba(14, 165, 233, 0.1);
+  
+  /* Radial Gradient Overlays */
+  --radial-purple: rgba(147, 51, 234, 0.08);
+  --radial-pink: rgba(236, 72, 153, 0.06);
+  --radial-blue: rgba(56, 189, 248, 0.05);
+  
+  /* Sidebar Colors */
+  --sidebar-bg: #2c2c2e;
+  --sidebar-bg-dark: #1a1a1c;
+  --sidebar-text: #e5e5e7;
+  --sidebar-text-secondary: #9ca3af;
+  --sidebar-hover: rgba(255, 255, 255, 0.1);
+  --sidebar-border: rgba(148, 163, 184, 0.3);
+  
+  /* Accent Colors */
+  --accent-primary: #3b82f6;
+  --accent-primary-hover: #2563eb;
+  --accent-secondary: #0ea5e9;
+  --accent-coral: #ff6b6b;
+  --accent-orange: #f97316;
+  
+  /* Text Colors */
+  --text-primary: #1f1f1f;
+  --text-secondary: #6b7280;
+  --text-tertiary: #9ca3af;
+  
+  /* Message Colors */
+  --user-msg-bg: rgba(0, 0, 0, 0.05);
+  --assistant-msg-bg: transparent;
+  
+  /* Composer Colors */
+  --composer-bg-start: rgba(255, 255, 255, 0.7);
+  --composer-bg-end: rgba(255, 255, 255, 0.6);
+  --composer-border: rgba(0, 0, 0, 0.1);
+  --composer-focus-border: #3b82f6;
+  --composer-wrapper-bg-start: rgba(255, 255, 255, 0.95);
+  --composer-wrapper-bg-end: rgba(255, 255, 255, 0.8);
+  
+  /* Glass Effect */
+  --glass-bg: rgba(255, 255, 255, 0.9);
+  --glass-border: rgba(0, 0, 0, 0.1);
+  --glass-shadow: rgba(0, 0, 0, 0.05);
+  
+  /* Base Colors */
+  color: var(--text-primary);
+  background-color: #ffffff;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color: #213547;
+    background-color: #ffffff;
+  }
+}
+
+/* ===== Dark Mode Color System ===== */
+[data-theme="dark"],
+.dark {
+  /* Gradient Background Components - Original Blue Gradient */
+  --bg-gradient-purple: rgba(99, 102, 241, 0.12);
+  --bg-gradient-pink: rgba(236, 72, 153, 0.15);
+  --bg-gradient-white: rgba(15, 23, 42, 0.0);
+  --bg-gradient-blue: rgba(56, 189, 248, 0.10);
+  --bg-gradient-sky: rgba(14, 165, 233, 0.15);
+  
+  /* Radial Gradient Overlays - Original settings */
+  --radial-purple: rgba(99, 102, 241, 0.12);
+  --radial-pink: rgba(236, 72, 153, 0.10);
+  --radial-blue: rgba(56, 189, 248, 0.10);
+  
+  /* Sidebar Colors - True black for dark mode */
+  --sidebar-bg: #000000;
+  --sidebar-bg-dark: #0a0a0a;
+  --sidebar-text: #e5e5e7;
+  --sidebar-text-secondary: #9ca3af;
+  --sidebar-hover: rgba(255, 255, 255, 0.15);
+  --sidebar-border: rgba(71, 85, 105, 0.5);
+  
+  /* Text Colors */
+  --text-primary: #f9fafb;
+  --text-secondary: #9ca3af;
+  --text-tertiary: #6b7280;
+  
+  /* Message Colors */
+  --user-msg-bg: rgba(255, 255, 255, 0.1);
+  --assistant-msg-bg: transparent;
+  
+  /* Composer Colors */
+  --composer-bg-start: rgba(31, 41, 55, 0.8);
+  --composer-bg-end: rgba(31, 41, 55, 0.7);
+  --composer-border: rgba(255, 255, 255, 0.1);
+  --composer-focus-border: #3b82f6;
+  --composer-wrapper-bg-start: rgba(17, 24, 39, 0.95);
+  --composer-wrapper-bg-end: rgba(17, 24, 39, 0.8);
+  
+  /* Glass Effect */
+  --glass-bg: rgba(31, 41, 55, 0.8);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-shadow: rgba(0, 0, 0, 0.3);
+  
+  /* Base Colors */
+  color: var(--text-primary);
+  background-color: #0b1220;
 }
 
 a {
@@ -24,16 +137,23 @@ a:hover {
   color: #969add;
 }
 
+
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  /* Soft radial/linear gradient that won't clash with bubbles */
+  
+  /* Professional gradient background with multi-layer radials */
   background-image:
-    radial-gradient(1200px 600px at 10% -10%, rgba(99,102,241,0.12), transparent 60%),
-    radial-gradient(900px 500px at 90% 10%, rgba(56,189,248,0.10), transparent 60%),
-    linear-gradient(to bottom, rgba(15,23,42,0.0), rgba(15,23,42,0.0));
+    radial-gradient(1200px 600px at 10% -10%, var(--radial-purple), transparent 60%),
+    radial-gradient(900px 500px at 90% 10%, var(--radial-blue), transparent 60%),
+    radial-gradient(800px 400px at 50% 100%, var(--radial-pink), transparent 70%),
+    linear-gradient(to bottom, var(--bg-gradient-white), var(--bg-gradient-white));
+  
+  /* Ensure smooth transitions */
+  transition: background-image 0.3s ease;
 }
+
 
 h1 {
   font-size: 3.2em;
@@ -60,27 +180,94 @@ button:focus-visible {
   outline: 4px auto -webkit-focus-ring-color;
 } */
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    /* Gradient Background Components - Original Blue Gradient */
+    --bg-gradient-purple: rgba(99, 102, 241, 0.12);
+    --bg-gradient-pink: rgba(236, 72, 153, 0.15);
+    --bg-gradient-white: rgba(15, 23, 42, 0.0);
+    --bg-gradient-blue: rgba(56, 189, 248, 0.10);
+    --bg-gradient-sky: rgba(14, 165, 233, 0.15);
+    
+    /* Radial Gradient Overlays - Original settings */
+    --radial-purple: rgba(99, 102, 241, 0.12);
+    --radial-pink: rgba(236, 72, 153, 0.10);
+    --radial-blue: rgba(56, 189, 248, 0.10);
+    
+    /* Sidebar Colors - True black for dark mode */
+    --sidebar-bg: #000000;
+    --sidebar-bg-dark: #0a0a0a;
+    --sidebar-text: #e5e5e7;
+    --sidebar-text-secondary: #9ca3af;
+    --sidebar-hover: rgba(255, 255, 255, 0.15);
+    --sidebar-border: rgba(71, 85, 105, 0.5);
+    
+    /* Text Colors */
+    --text-primary: #f9fafb;
+    --text-secondary: #9ca3af;
+    --text-tertiary: #6b7280;
+    
+    /* Message Colors */
+    --user-msg-bg: rgba(255, 255, 255, 0.1);
+    --assistant-msg-bg: transparent;
+    
+    /* Composer Colors */
+    --composer-bg-start: rgba(31, 41, 55, 0.8);
+    --composer-bg-end: rgba(31, 41, 55, 0.7);
+    --composer-border: rgba(255, 255, 255, 0.1);
+    --composer-focus-border: #3b82f6;
+    --composer-wrapper-bg-start: rgba(17, 24, 39, 0.95);
+    --composer-wrapper-bg-end: rgba(17, 24, 39, 0.8);
+    
+    /* Glass Effect */
+    --glass-bg: rgba(31, 41, 55, 0.8);
+    --glass-border: rgba(255, 255, 255, 0.1);
+    --glass-shadow: rgba(0, 0, 0, 0.3);
+    
+    /* Base Colors */
+    color: var(--text-primary);
+    background-color: #0b1220;
   }
-  body {
-    background-image:
-      radial-gradient(1200px 600px at 10% -10%, rgba(79,70,229,0.08), transparent 60%),
-      radial-gradient(900px 500px at 90% 10%, rgba(14,165,233,0.08), transparent 60%),
-      linear-gradient(to bottom, rgba(255,255,255,0.0), rgba(255,255,255,0.0));
-  }
-  a:hover {
-    color: #747bff;
-  }
-  /* button {
-    background-color: #f9f9f9;
-  } */
 }
+
 
 /* Spinner animation for email verification */
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
+}
+
+/* Empty State Animations */
+@keyframes float {
+  0%, 100% { 
+    transform: translateY(0); 
+  }
+  50% { 
+    transform: translateY(-10px); 
+  }
+}
+
+@keyframes bounce-subtle {
+  0%, 100% { 
+    transform: translateY(0); 
+  }
+  50% { 
+    transform: translateY(5px); 
+  }
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.animate-bounce-subtle {
+  animation: bounce-subtle 2s ease-in-out infinite;
+}
+
+/* Prompt Card Hover Effects */
+.prompt-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent-primary) !important;
+  box-shadow: 0 8px 16px rgba(59, 130, 246, 0.15);
 }

@@ -5,12 +5,25 @@ export default function ImageUploader({ onSelect }) {
   };
 
   return (
-    <label className="inline-flex items-center justify-center h-8 w-8 rounded-md text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer outline-none focus-within:ring-2 focus-within:ring-indigo-500 focus-within:ring-offset-2 dark:focus-within:ring-offset-slate-900"
-      aria-label="Attach image"
+    <label 
+      className="inline-flex items-center justify-center h-9 w-9 rounded-full cursor-pointer outline-none focus-within:ring-2 focus-within:ring-blue-500 transition-all"
+      style={{ color: 'var(--text-secondary)' }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.backgroundColor = 'var(--user-msg-bg)';
+        e.currentTarget.style.color = 'var(--text-primary)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.backgroundColor = 'transparent';
+        e.currentTarget.style.color = 'var(--text-secondary)';
+      }}
+      aria-label="Attach file"
+      title="Attach file"
     >
       <input type="file" accept="image/*" className="hidden" onChange={onChange} />
-      <span aria-hidden>📎</span>
-      <span className="sr-only">Attach image</span>
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+      </svg>
+      <span className="sr-only">Attach file</span>
     </label>
   );
 }

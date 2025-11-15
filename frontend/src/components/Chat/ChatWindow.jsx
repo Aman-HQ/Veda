@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import MessageBubble from './MessageBubble.jsx';
 import TypingIndicator from './TypingIndicator.jsx';
+import EmptyState from './EmptyState.jsx';
 import { listMessages, createMessage } from '../../services/chatService.js';
 import useWebSocket from '../../hooks/useWebSocket.js';
 import authStore from '../../stores/authStore.js';
 
-export default function ChatWindow({ conversationId, reloadToken, onAssistantDone }) {
+export default function ChatWindow({ conversationId, reloadToken, onAssistantDone, onPromptSelected }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [draftAssistant, setDraftAssistant] = useState('');
@@ -15,6 +16,13 @@ export default function ChatWindow({ conversationId, reloadToken, onAssistantDon
   const bottomAnchorRef = useRef(null);
   const lastConversationIdRef = useRef(null);
   const ws = useWebSocket();
+
+  const user = authStore.getUser();
+  const username = user?.displayName || user?.email?.split('@')[0] || 'there';
+
+  const handlePromptClick = (prompt) => {
+    onPromptSelected?.(prompt);
+  };
 
   useEffect(() => {
     let isCancelled = false;
@@ -134,27 +142,27 @@ export default function ChatWindow({ conversationId, reloadToken, onAssistantDon
   return (
     <div className="flex-1 min-h-0" role="main" aria-label="Chat conversation">
       <div ref={scrollRef} className="h-full overflow-y-auto px-4 sm:px-6">
-        <div className="max-w-2xl mx-auto w-full py-6 sm:py-8 space-y-4">
+        <div className="max-w-3xl mx-auto w-full py-6 sm:py-8 space-y-8">
           {!conversationId ? (
-            <div className="text-center text-slate-500 dark:text-slate-400 text-sm">
-              Start typing below to begin a new conversation.
-            </div>
+            <EmptyState username={username} onPromptClick={handlePromptClick} />
           ) : loading ? (
             <div className="text-center text-slate-500 dark:text-slate-400 text-sm">Loading…</div>
           ) : messages.length === 0 ? (
-            <div className="text-center text-slate-500 dark:text-slate-400 text-sm">
-              Start a conversation by sending a message.
-            </div>
+            <EmptyState username={username} onPromptClick={handlePromptClick} />
           ) : (
             messages.map((m) => (
-              <MessageBubble key={m.id} role={m.role} createdAt={m.createdAt}>
-                {m.content}
-              </MessageBubble>
+              <div key={m.id} className="group">
+                <MessageBubble role={m.role} createdAt={m.createdAt} messageId={m.id}>
+                  {m.content}
+                </MessageBubble>
+              </div>
             ))
           )}
           {streaming ? <TypingIndicator /> : null}
           {draftAssistant ? (
-            <MessageBubble role="assistant">{draftAssistant}</MessageBubble>
+            <div className="group">
+              <MessageBubble role="assistant">{draftAssistant}</MessageBubble>
+            </div>
           ) : null}
           {error ? (
             <div className="text-center text-xs text-red-500">{error}</div>

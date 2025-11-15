@@ -1,6 +1,11 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import useAuth from '../../hooks/useAuth.js';
+import UserProfileMenu from './UserProfileMenu.jsx';
+import SettingsPanel from './SettingsPanel.jsx';
 
 export default function Sidebar({ open, onClose, children }) {
+  const { user, logout } = useAuth();
+  const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
   const panelRef = useRef(null);
   const previouslyFocusedRef = useRef(null);
 
@@ -73,34 +78,70 @@ export default function Sidebar({ open, onClose, children }) {
 
       {/* Sidebar panel */}
       <aside
-        className={`sm:static fixed inset-y-0 left-0 z-40 w-72 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col transition-transform duration-200 ease-out sm:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}
+        className={`sm:static fixed inset-y-0 left-0 z-40 w-72 border-r flex flex-col transition-all duration-300 ease-out sm:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}
+        style={{
+          backgroundColor: 'var(--sidebar-bg)',
+          borderColor: 'var(--sidebar-border)'
+        }}
         aria-label="Conversation navigation"
         role="navigation"
         ref={panelRef}
         tabIndex={-1}
       >
-        <div className="h-14 sm:hidden flex items-center px-3 border-b border-slate-200 dark:border-slate-800">
+        <div 
+          className="h-14 sm:hidden flex items-center px-3 border-b transition-colors duration-300"
+          style={{ borderColor: 'var(--sidebar-border)' }}
+        >
           <button
-            className="h-9 w-9 inline-flex items-center justify-center rounded-md border border-slate-200 dark:border-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900"
+            className="h-9 w-9 inline-flex items-center justify-center rounded-md border outline-none focus-visible:ring-2 focus-visible:ring-blue-500 transition-all"
+            style={{
+              borderColor: 'var(--sidebar-border)',
+              color: 'var(--sidebar-text)'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = 'var(--sidebar-hover)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+            }}
             onClick={onClose}
             aria-label="Close sidebar"
           >
             ×
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+        <div className="flex-1 overflow-y-auto p-2 space-y-1">
           {children ? (
             children
           ) : (
-            <div className="text-sm text-slate-500 dark:text-slate-400 px-2 py-2">No sidebar content</div>
+            <div 
+              className="text-sm px-3 py-2 transition-colors duration-300"
+              style={{ color: 'var(--sidebar-text-secondary)' }}
+            >
+              No sidebar content
+            </div>
           )}
         </div>
-        <div className="p-3 border-t border-slate-200 dark:border-slate-800">
-          <button className="w-full justify-center inline-flex items-center gap-2 px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
-            <span>Settings</span>
-          </button>
+        <div 
+          className="p-3 border-t transition-colors duration-300"
+          style={{ borderColor: 'var(--sidebar-border)' }}
+        >
+          {/* User Profile Menu */}
+          {user && (
+            <UserProfileMenu 
+              user={user} 
+              onLogout={logout}
+              onOpenSettings={() => setSettingsPanelOpen(true)}
+            />
+          )}
         </div>
       </aside>
+
+      {/* Settings Panel */}
+      <SettingsPanel 
+        isOpen={settingsPanelOpen}
+        onClose={() => setSettingsPanelOpen(false)}
+      />
     </>
   );
 }

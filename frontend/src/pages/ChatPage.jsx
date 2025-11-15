@@ -4,7 +4,7 @@ import ChatWindow from '../components/Chat/ChatWindow.jsx';
 import Composer from '../components/Chat/Composer.jsx';
 import ConversationList from '../components/Chat/ConversationList.jsx';
 import ChatLayout from '../components/Chat/ChatLayout.jsx';
-import { createConversation, listConversations } from '../services/chatService.js';
+import { createConversation, listConversations, deleteConversation, updateConversation } from '../services/chatService.js';
 import uiStore from '../stores/uiStore.js';
 import useWebSocket from '../hooks/useWebSocket.js';
 import authStore from '../stores/authStore.js';
@@ -14,6 +14,7 @@ export default function ChatPage() {
   const [conversations, setConversations] = useState([]);
   const [activeConversationId, setActiveConversationId] = useState(uiStore.getState().activeConversationId);
   const [reloadToken, setReloadToken] = useState(0); // triggers message list refresh without remounting
+  const [selectedPrompt, setSelectedPrompt] = useState('');
   const ws = useWebSocket();
 
   // Set up WebSocket message listener for user_message_saved events
@@ -44,6 +45,42 @@ export default function ChatPage() {
     return () => unsub?.();
   }, []);
 
+  const handleRename = async (id, newTitle) => {
+    try {
+      await updateConversation(id, { title: newTitle });
+      const list = await listConversations();
+      setConversations(list);
+    } catch (error) {
+      console.error('Failed to rename conversation:', error);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    try {
+      await deleteConversation(id);
+      const list = await listConversations();
+      setConversations(list);
+      
+      // If deleted conversation was active, clear active conversation
+      if (id === activeConversationId) {
+        setActiveConversationId(null);
+        uiStore.setActiveConversation(null);
+      }
+    } catch (error) {
+      console.error('Failed to delete conversation:', error);
+    }
+  };
+
+  const handlePin = async (id, isPinned) => {
+    try {
+      await updateConversation(id, { isPinned });
+      const list = await listConversations();
+      setConversations(list);
+    } catch (error) {
+      console.error('Failed to pin conversation:', error);
+    }
+  };
+
   const sidebar = useMemo(() => (
     <ConversationList
       conversations={conversations}
@@ -55,11 +92,17 @@ export default function ChatPage() {
         setConversations(list);
         setActiveConversationId(created.id);
       }}
+      onRename={handleRename}
+      onDelete={handleDelete}
+      onPin={handlePin}
     />
   ), [conversations, activeConversationId]);
 
   const handleSend = async (text) => {
     let conversationId = activeConversationId;
+    
+    // Clear selected prompt after sending
+    setSelectedPrompt('');
     
     // If no active conversation, create one automatically
     if (!conversationId) {
@@ -117,11 +160,13 @@ export default function ChatPage() {
             conversationId={activeConversationId}
             reloadToken={reloadToken}
             onAssistantDone={() => setReloadToken((n) => n + 1)}
+            onPromptSelected={setSelectedPrompt}
           />
         </div>
-        <div className="mt-2">
+        <div className='mt-2'>
           <Composer
             onSend={handleSend}
+            initialValue={selectedPrompt}
             onAttachImage={(file) => {
               console.log('Selected image (mock):', file?.name);
             }}
