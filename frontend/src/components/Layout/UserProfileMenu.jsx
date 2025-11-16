@@ -64,7 +64,7 @@ export default function UserProfileMenu({ user, onLogout, onOpenSettings }) {
                 fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
               }}
             >
-              {user.displayName || 'User'}
+              {user.displayName || user.name || user.email?.split('@')[0] || 'User'}
             </div>
             <div 
               className="text-xs truncate"
@@ -127,6 +127,31 @@ export default function UserProfileMenu({ user, onLogout, onOpenSettings }) {
                 <circle cx="12" cy="7" r="4"></circle>
               </svg>
               <span>My Account</span>
+            </div>
+          </button>
+
+          {/* Home Option */}
+          <button
+            onClick={() => {
+              setIsOpen(false);
+              // Navigate to home/chat page
+              window.location.href = '/chat';
+            }}
+            className="w-full text-left px-4 py-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-blue-500 transition-all"
+            style={{ color: 'var(--sidebar-text)' }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = 'var(--sidebar-hover)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+            }}
+          >
+            <div className="flex items-center gap-3">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                <polyline points="9 22 9 12 15 12 15 22"></polyline>
+              </svg>
+              <span>Home</span>
             </div>
           </button>
 

@@ -54,6 +54,7 @@ class MessageInDB(MessageBase):
 class ConversationBase(BaseModel):
     """Base conversation schema with common fields."""
     title: Optional[str] = Field(None, max_length=512, description="Conversation title")
+    is_pinned: Optional[bool] = Field(default=False, description="Whether conversation is pinned")
 
 
 class ConversationCreate(ConversationBase):
@@ -64,6 +65,7 @@ class ConversationCreate(ConversationBase):
 class ConversationUpdate(BaseModel):
     """Schema for updating a conversation."""
     title: Optional[str] = Field(None, max_length=512, description="Conversation title")
+    is_pinned: Optional[bool] = Field(None, description="Whether conversation is pinned")
 
 
 class Conversation(ConversationBase):

@@ -2,7 +2,7 @@
 Conversation model for storing chat conversations.
 """
 import uuid
-from sqlalchemy import Column, String, DateTime, ForeignKey, Integer, func
+from sqlalchemy import Column, String, DateTime, ForeignKey, Integer, Boolean, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -22,6 +22,7 @@ class Conversation(Base):
     )
     title = Column(String(512), nullable=True)
     messages_count = Column(Integer, default=0)
+    is_pinned = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships

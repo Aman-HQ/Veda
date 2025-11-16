@@ -110,20 +110,20 @@ export default function Sidebar({ open, onClose, children }) {
             ×
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
-          {children ? (
-            children
-          ) : (
+        {children ? (
+          children
+        ) : (
+          <div className="flex-1 overflow-y-auto p-2 space-y-1">
             <div 
               className="text-sm px-3 py-2 transition-colors duration-300"
               style={{ color: 'var(--sidebar-text-secondary)' }}
             >
               No sidebar content
             </div>
-          )}
-        </div>
+          </div>
+        )}
         <div 
-          className="p-3 border-t transition-colors duration-300"
+          className="flex-shrink-0 p-3 border-t transition-colors duration-300"
           style={{ borderColor: 'var(--sidebar-border)' }}
         >
           {/* User Profile Menu */}

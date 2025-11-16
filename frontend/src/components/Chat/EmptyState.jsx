@@ -1,5 +1,9 @@
+import { useState, useEffect } from 'react';
+
 export default function EmptyState({ username, onPromptClick }) {
-  const prompts = [
+  // All 20 healthcare-related prompts
+  const allPrompts = [
+    // Set 1 (Original)
     {
       icon: '🩺',
       title: 'Health Advice',
@@ -19,33 +23,193 @@ export default function EmptyState({ username, onPromptClick }) {
       icon: '🍎',
       title: 'Nutrition',
       prompt: "What's a balanced diet for adults?"
+    },
+    // Set 2
+    {
+      icon: '❤️',
+      title: 'Heart Health',
+      prompt: 'How can I maintain a healthy heart?'
+    },
+    {
+      icon: '🧠',
+      title: 'Mental Wellness',
+      prompt: 'What are effective stress management techniques?'
+    },
+    {
+      icon: '🦴',
+      title: 'Bone Health',
+      prompt: 'How can I prevent osteoporosis?'
+    },
+    {
+      icon: '👁️',
+      title: 'Eye Care',
+      prompt: 'What are signs of eye strain from screens?'
+    },
+    // Set 3
+    {
+      icon: '🫁',
+      title: 'Respiratory Health',
+      prompt: 'How can I improve lung capacity?'
+    },
+    {
+      icon: '💉',
+      title: 'Vaccinations',
+      prompt: 'What vaccines do adults need?'
+    },
+    {
+      icon: '🧘',
+      title: 'Mindfulness',
+      prompt: 'How does meditation benefit health?'
+    },
+    {
+      icon: '🥗',
+      title: 'Healthy Eating',
+      prompt: 'What foods boost immune system?'
+    },
+    // Set 4
+    {
+      icon: '🏋️',
+      title: 'Fitness',
+      prompt: 'What exercises are best for beginners?'
+    },
+    {
+      icon: '😴',
+      title: 'Sleep Health',
+      prompt: 'How many hours of sleep do I need?'
+    },
+    {
+      icon: '🩸',
+      title: 'Blood Pressure',
+      prompt: 'How can I naturally lower blood pressure?'
+    },
+    {
+      icon: '🦷',
+      title: 'Dental Health',
+      prompt: 'What are best practices for oral hygiene?'
+    },
+    // Set 5
+    {
+      icon: '🌡️',
+      title: 'Fever',
+      prompt: 'When should I be concerned about a fever?'
+    },
+    {
+      icon: '🧴',
+      title: 'Skin Care',
+      prompt: 'How can I protect my skin from sun damage?'
+    },
+    {
+      icon: '💪',
+      title: 'Muscle Health',
+      prompt: 'How can I prevent muscle cramps?'
+    },
+    {
+      icon: '🍵',
+      title: 'Hydration',
+      prompt: 'How much water should I drink daily?'
     }
   ];
 
+  // Cycling logic with localStorage persistence
+  // Initialize with the next set in sequence (no repeats until full cycle)
+  const [currentSetIndex, setCurrentSetIndex] = useState(() => {
+    try {
+      const stored = localStorage.getItem('vedaCardSetIndex');
+      const storedTime = localStorage.getItem('vedaCardLastChange');
+      
+      if (stored !== null) {
+        const index = parseInt(stored, 10);
+        const lastChange = storedTime ? parseInt(storedTime, 10) : Date.now();
+        const timeSinceLastChange = Date.now() - lastChange;
+        
+        // If more than 15 minutes passed, advance to next set
+        if (timeSinceLastChange >= 900000) { // 15 minutes
+          const nextIndex = (index + 1) % 5; // Cycle through 0-4
+          localStorage.setItem('vedaCardSetIndex', nextIndex.toString());
+          localStorage.setItem('vedaCardLastChange', Date.now().toString());
+          return nextIndex;
+        }
+        return index;
+      }
+      
+      // First time: start at 0
+      localStorage.setItem('vedaCardSetIndex', '0');
+      localStorage.setItem('vedaCardLastChange', Date.now().toString());
+      return 0;
+    } catch (error) {
+      console.error('Error accessing localStorage:', error);
+      return 0;
+    }
+  });
+  
+  const [isFlipping, setIsFlipping] = useState(false);
+
+  // Handle page refresh - advance to next set
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      try {
+        const currentIndex = parseInt(localStorage.getItem('vedaCardSetIndex') || '0', 10);
+        const nextIndex = (currentIndex + 1) % 5; // Move to next set on refresh
+        localStorage.setItem('vedaCardSetIndex', nextIndex.toString());
+        localStorage.setItem('vedaCardLastChange', Date.now().toString());
+      } catch (error) {
+        console.error('Error updating localStorage on refresh:', error);
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
+
+  // Calculate which 4 cards to show
+  const startIndex = currentSetIndex * 4;
+  const currentPrompts = allPrompts.slice(startIndex, startIndex + 4);
+
+  useEffect(() => {
+    // Rotate cards every 15 minutes (900000 ms)
+    const rotationInterval = setInterval(() => {
+      setIsFlipping(true);
+      
+      // After flip animation starts, change the cards
+      setTimeout(() => {
+        setCurrentSetIndex((prevIndex) => {
+          const nextIndex = (prevIndex + 1) % 5; // Cycle through 0-4, no repeats
+          
+          // Persist to localStorage
+          try {
+            localStorage.setItem('vedaCardSetIndex', nextIndex.toString());
+            localStorage.setItem('vedaCardLastChange', Date.now().toString());
+          } catch (error) {
+            console.error('Error saving to localStorage:', error);
+          }
+          
+          return nextIndex;
+        });
+        
+        // End flip animation
+        setTimeout(() => {
+          setIsFlipping(false);
+        }, 300);
+      }, 300);
+    }, 900000); // 15 minutes
+
+    return () => clearInterval(rotationInterval);
+  }, []);
+
   return (
-    <div className="flex flex-col items-center justify-center px-6 py-12 min-h-full">
+    <div className="flex flex-col items-center justify-center px-6 pt-7 min-h-full">
       {/* Welcome Section */}
-      <div className="text-center mb-12">
-        <div className="text-6xl mb-6 animate-float">✨</div>
+      <div className="text-center mb-10">
         <h1 
-          className="text-5xl font-bold mb-3"
+          className="text-5xl font-bold -ml-9"
           style={{ 
             color: 'var(--text-primary)',
             letterSpacing: '-0.02em',
             fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
           }}
-        >
+        ><span className="text-6xl mb-6 animate-float">✨ </span>
           Hello, {username || 'there'}
         </h1>
-        <p 
-          className="text-xl"
-          style={{ 
-            color: 'var(--text-secondary)',
-            fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-          }}
-        >
-          How can I help you today?
-        </p>
       </div>
 
       {/* Suggested Prompts */}
@@ -57,14 +221,14 @@ export default function EmptyState({ username, onPromptClick }) {
             fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
           }}
         >
-          Try asking about:
+          Let’s  take  a  step  toward's  Your  better  Health!
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {prompts.map((item, index) => (
+          {currentPrompts.map((item, index) => (
             <button
-              key={index}
+              key={`${currentSetIndex}-${index}`}
               onClick={() => onPromptClick?.(item.prompt)}
-              className="prompt-card group"
+              className={`prompt-card group ${isFlipping ? 'flip-out' : 'flip-in'}`}
               style={{
                 padding: '20px',
                 borderRadius: '12px',
@@ -74,7 +238,10 @@ export default function EmptyState({ username, onPromptClick }) {
                 WebkitBackdropFilter: 'blur(10px)',
                 cursor: 'pointer',
                 transition: 'all 0.2s ease',
-                textAlign: 'left'
+                textAlign: 'left',
+                animation: isFlipping 
+                  ? 'flipOut 0.6s ease-in-out' 
+                  : 'flipIn 0.6s ease-in-out'
               }}
             >
               <div className="text-3xl mb-3">{item.icon}</div>
@@ -101,34 +268,6 @@ export default function EmptyState({ username, onPromptClick }) {
             </button>
           ))}
         </div>
-      </div>
-
-      {/* Start Typing Hint */}
-      <div 
-        className="flex items-center gap-2 animate-bounce-subtle"
-        style={{ 
-          color: 'var(--text-secondary)',
-          fontSize: '14px',
-          fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-        }}
-      >
-        <svg 
-          width="16" 
-          height="16" 
-          viewBox="0 0 16 16" 
-          fill="none" 
-          xmlns="http://www.w3.org/2000/svg"
-          className="opacity-70"
-        >
-          <path 
-            d="M8 3V13M8 13L12 9M8 13L4 9" 
-            stroke="currentColor" 
-            strokeWidth="2" 
-            strokeLinecap="round" 
-            strokeLinejoin="round"
-          />
-        </svg>
-        Start typing below to begin a new conversation
       </div>
     </div>
   );

@@ -15,6 +15,7 @@ export default function ChatPage() {
   const [activeConversationId, setActiveConversationId] = useState(uiStore.getState().activeConversationId);
   const [reloadToken, setReloadToken] = useState(0); // triggers message list refresh without remounting
   const [selectedPrompt, setSelectedPrompt] = useState('');
+  const [editingMessage, setEditingMessage] = useState(''); // For editing messages
   const ws = useWebSocket();
 
   // Set up WebSocket message listener for user_message_saved events
@@ -98,11 +99,21 @@ export default function ChatPage() {
     />
   ), [conversations, activeConversationId]);
 
+  const handleEditMessage = (messageContent) => {
+    // Clear first to ensure state change is detected even if same content
+    setEditingMessage('');
+    // Use setTimeout to ensure state update is processed
+    setTimeout(() => {
+      setEditingMessage(messageContent);
+    }, 0);
+  };
+
   const handleSend = async (text) => {
     let conversationId = activeConversationId;
     
-    // Clear selected prompt after sending
+    // Clear selected prompt and editing message after sending
     setSelectedPrompt('');
+    setEditingMessage('');
     
     // If no active conversation, create one automatically
     if (!conversationId) {
@@ -161,12 +172,13 @@ export default function ChatPage() {
             reloadToken={reloadToken}
             onAssistantDone={() => setReloadToken((n) => n + 1)}
             onPromptSelected={setSelectedPrompt}
+            onEditMessage={handleEditMessage}
           />
         </div>
         <div className='mt-2'>
           <Composer
             onSend={handleSend}
-            initialValue={selectedPrompt}
+            initialValue={selectedPrompt || editingMessage}
             onAttachImage={(file) => {
               console.log('Selected image (mock):', file?.name);
             }}

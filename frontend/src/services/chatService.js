@@ -8,7 +8,14 @@ const realApi = {
   async listConversations() {
     try {
       const response = await api.get('/api/conversations');
-      return response.data;
+      // Map snake_case to camelCase
+      return response.data.map(conv => ({
+        ...conv,
+        isPinned: conv.is_pinned ?? false,
+        messagesCount: conv.messages_count,
+        userId: conv.user_id,
+        createdAt: conv.created_at
+      }));
     } catch (error) {
       console.error('Failed to list conversations:', error);
       throw error;
@@ -20,7 +27,14 @@ const realApi = {
       const response = await api.post('/api/conversations', {
         title: title || 'New Conversation'
       });
-      return response.data;
+      // Map snake_case to camelCase
+      return {
+        ...response.data,
+        isPinned: response.data.is_pinned ?? false,
+        messagesCount: response.data.messages_count,
+        userId: response.data.user_id,
+        createdAt: response.data.created_at
+      };
     } catch (error) {
       console.error('Failed to create conversation:', error);
       throw error;
@@ -39,11 +53,18 @@ const realApi = {
 
   async updateConversation(id, { title, isPinned }) {
     try {
-      const response = await api.patch(`/api/conversations/${id}`, {
+      const response = await api.put(`/api/conversations/${id}`, {
         title,
         is_pinned: isPinned
       });
-      return response.data;
+      // Map snake_case to camelCase
+      return {
+        ...response.data,
+        isPinned: response.data.is_pinned ?? false,
+        messagesCount: response.data.messages_count,
+        userId: response.data.user_id,
+        createdAt: response.data.created_at
+      };
     } catch (error) {
       console.error('Failed to update conversation:', error);
       throw error;

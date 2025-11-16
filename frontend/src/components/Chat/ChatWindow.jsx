@@ -6,19 +6,20 @@ import { listMessages, createMessage } from '../../services/chatService.js';
 import useWebSocket from '../../hooks/useWebSocket.js';
 import authStore from '../../stores/authStore.js';
 
-export default function ChatWindow({ conversationId, reloadToken, onAssistantDone, onPromptSelected }) {
+export default function ChatWindow({ conversationId, reloadToken, onAssistantDone, onPromptSelected, onEditMessage }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [draftAssistant, setDraftAssistant] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState('');
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
   const scrollRef = useRef(null);
   const bottomAnchorRef = useRef(null);
   const lastConversationIdRef = useRef(null);
   const ws = useWebSocket();
 
   const user = authStore.getUser();
-  const username = user?.displayName || user?.email?.split('@')[0] || 'there';
+  const username = user?.name?.split(' ')[0] || user?.email?.split('@')[0] || 'there';
 
   const handlePromptClick = (prompt) => {
     onPromptSelected?.(prompt);
@@ -27,19 +28,28 @@ export default function ChatWindow({ conversationId, reloadToken, onAssistantDon
   useEffect(() => {
     let isCancelled = false;
     const isSwitch = conversationId !== lastConversationIdRef.current;
+    
     async function load() {
       if (!conversationId) {
         setMessages([]);
         setLoading(false);
+        setIsInitialLoad(true);
         lastConversationIdRef.current = null;
         return;
       }
-      if (isSwitch) setLoading(true);
+      if (isSwitch) {
+        setLoading(true);
+        setIsInitialLoad(true); // Mark as initial load for conversation switch
+      }
       try {
         const list = await listMessages(conversationId);
         if (!isCancelled) setMessages(list);
       } finally {
-        if (!isCancelled && isSwitch) setLoading(false);
+        if (!isCancelled && isSwitch) {
+          setLoading(false);
+          // Set isInitialLoad to false after a short delay to allow instant scroll
+          setTimeout(() => setIsInitialLoad(false), 100);
+        }
         lastConversationIdRef.current = conversationId;
       }
     }
@@ -53,9 +63,12 @@ export default function ChatWindow({ conversationId, reloadToken, onAssistantDon
     // Auto-scroll to bottom when messages change or typing state toggles
     const el = bottomAnchorRef.current;
     if (!el) return;
-    // smooth scroll only when not first load
-    el.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages, streaming, draftAssistant]);
+    
+    // Use instant scroll for initial loads and conversation switches to avoid animation
+    // Use smooth scroll only for new messages in the same conversation
+    const behavior = isInitialLoad ? 'instant' : 'smooth';
+    el.scrollIntoView({ behavior, block: 'end' });
+  }, [messages, streaming, draftAssistant, isInitialLoad]);
 
   // Start streaming when the latest message is from user and no assistant follows
   useEffect(() => {
@@ -152,7 +165,7 @@ export default function ChatWindow({ conversationId, reloadToken, onAssistantDon
           ) : (
             messages.map((m) => (
               <div key={m.id} className="group">
-                <MessageBubble role={m.role} createdAt={m.createdAt} messageId={m.id}>
+                <MessageBubble role={m.role} createdAt={m.createdAt} messageId={m.id} onEditMessage={onEditMessage}>
                   {m.content}
                 </MessageBubble>
               </div>

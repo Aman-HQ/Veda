@@ -1,13 +1,14 @@
 import HealthcareDisclaimer from '../HealthcareDisclaimer.jsx';
 import MessageActions from './MessageActions.jsx';
+import UserMessageActions from './UserMessageActions.jsx';
 import formatDate from '../../utils/formatDate.js';
 
-export default function MessageBubble({ role = 'assistant', children, createdAt, messageId }) {
+export default function MessageBubble({ role = 'assistant', children, createdAt, messageId, onEditMessage }) {
   const isUser = role === 'user';
   
   return (
     <div 
-      className={`flex gap-4 w-full transition-colors duration-300 ${isUser ? 'pl-16' : 'pr-16'}`}
+      className={`flex gap-4 w-full transition-colors duration-300 ${isUser ? 'justify-end pl-75' : 'justify-start pr-15'}`}
       role="article" 
       aria-label={isUser ? 'User message' : 'Assistant message'}
     >
@@ -23,35 +24,38 @@ export default function MessageBubble({ role = 'assistant', children, createdAt,
         </div>
       )}
       
-      {/* Message content */}
-      <div className="flex-1 min-w-0">
+      {/* Message content - dynamic width for user, full width for assistant */}
+      <div className={`min-w-0 ${isUser ? 'max-w-full' : 'flex-1'}`}>
         <div
           className={`transition-colors duration-300 ${
             isUser
-              ? 'px-5 py-4 rounded-2xl'
+              ? 'px-5 py-4 rounded-2xl text-left inline-block'
               : 'py-1'
           }`}
           style={isUser ? { backgroundColor: 'var(--user-msg-bg)' } : {}}
         >
           <div 
-            className="whitespace-pre-wrap break-words transition-colors duration-300"
+            className={`whitespace-pre-wrap break-words transition-colors duration-300 ${isUser ? 'text-left' : ''}`}
             data-message-id={messageId}
             style={{
-              fontSize: '17px',
+              fontSize: isUser ? '16px' : '17px',
               lineHeight: '1.75',
               letterSpacing: '-0.011em',
               color: 'var(--text-primary)',
-              fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+              fontFamily: isUser 
+                ? "'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif"
+                : "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
             }}
           >
             {children}
           </div>
           {createdAt && (
             <div 
-              className="text-xs mt-3 select-none transition-colors duration-300"
+              className={`text-xs mt-3 select-none transition-colors duration-300 ${isUser ? 'text-left' : ''}`}
               style={{ 
                 color: 'var(--text-tertiary)',
-                fontSize: '12px'
+                fontSize: '12px',
+                textAlign: isUser ? 'left' : 'left'
               }}
             >
               {formatDate(createdAt)}
@@ -59,8 +63,10 @@ export default function MessageBubble({ role = 'assistant', children, createdAt,
           )}
         </div>
         
-        {/* Show actions and disclaimer only for assistant messages */}
-        {!isUser && (
+        {/* Show actions for both user and assistant messages */}
+        {isUser ? (
+          <UserMessageActions messageId={messageId} onEdit={onEditMessage} />
+        ) : (
           <div className="mt-3">
             <MessageActions messageId={messageId} />
             <HealthcareDisclaimer />
